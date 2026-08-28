@@ -71,13 +71,11 @@
           const numero   = leftPad(indice, 4);
           const basename = numero + ' - ' + sanitizar(archivo.titulo || 'documento') + (archivo.extension || '.pdf');
           try {
-            const resp = await fetchConTimeout(url, { credentials: 'include' }, 30000);
-            if (!resp.ok) throw new Error('HTTP ' + resp.status);
-            const buffer = await resp.arrayBuffer();
+            const buffer = await descargarPDFValidado(url, 30000);
             zipEntries.push({ name: basename, data: new Uint8Array(buffer) });
             pdfNames.push(basename);
             descargados++; indice++;
-          } catch (err) { errores++; }
+          } catch (err) { console.warn('[PJN] Descarga descartada (' + basename + '):', err.message); errores++; }
           if (i % 5 === 0 || i === total - 1)
             chrome.runtime.sendMessage({ action: 'actualizarProgreso', progreso: { total, descargados, errores, terminado: false }, nextIndex: indice });
         }
@@ -124,9 +122,7 @@
             url += (url.indexOf('?') !== -1 ? '&' : '?') + 'download=true';
           const urlHiper = url.replace(/[&?]download=true/g, '');
           try {
-            const resp = await fetchConTimeout(url, { credentials: 'include' }, 30000);
-            if (!resp.ok) throw new Error('HTTP ' + resp.status);
-            const buffer = await resp.arrayBuffer();
+            const buffer = await descargarPDFValidado(url, 30000);
             const bufferB64 = arrayBufferABase64(buffer);
             console.log('[PJN DIAG] doc', indice, '| bytes originales:', buffer.byteLength,
               '| primeros bytes:', new Uint8Array(buffer.slice(0,5)).join(','),
@@ -139,7 +135,7 @@
               urlHiper, bufferB64, mime: 'application/pdf'
             }, r));
             descargados++; indice++;
-          } catch (err) { errores++; }
+          } catch (err) { console.warn('[PJN] Descarga descartada al guardar en biblioteca (doc ' + indice + '):', err.message); errores++; }
           if (i % 3 === 0 || i === total - 1)
             chrome.runtime.sendMessage({ action: 'actualizarProgreso', progreso: { total, descargados, errores, terminado: false }, nextIndex: indice });
         }
@@ -351,6 +347,33 @@
       clearTimeout(timer);
       throw e;
     }
+  }
+
+  // El SCW a veces responde 200 OK con una página HTML (error de sesión,
+  // redirect a login, etc.) en vez del PDF pedido — sobre todo si la sesión
+  // vence a mitad de una descarga larga. Un fetch "exitoso" (resp.ok) no
+  // garantiza que el body sea un PDF real, y guardar esa página HTML como si
+  // fuera el documento produce las "actuaciones en blanco" que no se pueden
+  // abrir después. Chequeamos la firma %PDF- al inicio del archivo antes de
+  // darlo por bueno.
+  function esBufferPDFValido(buffer) {
+    if (!buffer || buffer.byteLength < 5) return false;
+    const firma = new Uint8Array(buffer, 0, 5);
+    return firma[0] === 0x25 && firma[1] === 0x50 && firma[2] === 0x44 && firma[3] === 0x46 && firma[4] === 0x2D; // "%PDF-"
+  }
+
+  // Descarga un documento validando que el resultado sea un PDF real.
+  // Si la primera respuesta no lo es (típicamente sesión vencida), reintenta
+  // una vez tras una pequeña espera antes de darlo por error.
+  async function descargarPDFValidado(url, timeoutMs) {
+    for (let intento = 0; intento < 2; intento++) {
+      const resp = await fetchConTimeout(url, { credentials: 'include' }, timeoutMs);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const buffer = await resp.arrayBuffer();
+      if (esBufferPDFValido(buffer)) return buffer;
+      if (intento === 0) await new Promise(r => setTimeout(r, 1500));
+    }
+    throw new Error('La respuesta no es un PDF válido (posible sesión vencida)');
   }
 
   // ─── Overlay ──────────────────────────────────────────────────────────────
