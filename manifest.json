@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "PJN Descargador",
+  "version": "0.8.0",
+  "description": "Descarga, guarda localmente y visualiza documentos del Sistema de Consulta Web del PJN.",
+  "action": {
+    "default_title": "PJN Descargador",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "activeTab",
+    "downloads",
+    "storage",
+    "tabs",
+    "scripting",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "https://scw.pjn.gov.ar/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://scw.pjn.gov.ar/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,0 +1,270 @@
+document.addEventListener('DOMContentLoaded', function () {
+  var estado       = document.getElementById('estado');
+  var btnLibro     = document.getElementById('btnLibro');
+  var btnDescargar = document.getElementById('btnDescargar');
+  var btnGuardar   = document.getElementById('btnGuardar');
+  var btnBiblioteca= document.getElementById('btnBiblioteca');
+  var cambiosBox   = document.getElementById('cambiosBox');
+  var pollingInterval = null;
+
+  btnBiblioteca.addEventListener('click', function () {
+    chrome.tabs.create({ url: chrome.runtime.getURL('biblioteca.html') });
+  });
+
+  function fechaCorta(iso) {
+    if (!iso) return '?';
+    try { return new Date(iso).toLocaleDateString('es-AR'); } catch (e) { return iso; }
+  }
+
+  function mostrarEstadoBiblioteca(cid) {
+    chrome.runtime.sendMessage({ action: 'bibliotecaListar' }, function (r) {
+      if (chrome.runtime.lastError || !r || !r.ok) return;
+      var registro = (r.expedientes || []).find(function (e) { return e.cid === cid; });
+      if (!registro) return;
+
+      cambiosBox.style.display = 'block';
+      if (registro.estado === 'nuevo') {
+        cambiosBox.innerHTML =
+          '📚 En biblioteca · 🔴 ' + registro.nuevasDetectadas + ' actuaciones nuevas ' +
+          '(última verificación: ' + fechaCorta(registro.fechaVerificacion) + ')<br>' +
+          '<button id="btnActualizarBib">💾 Actualizar biblioteca</button> ' +
+          '<button id="btnVerificar" style="background:#fff;color:#8a6000;margin-top:6px">🔍 Verificar de nuevo</button>';
+      } else {
+        cambiosBox.innerHTML =
+          '📚 En biblioteca · ✅ al día (' + registro.cantidadActuaciones + ' actuaciones, guardado ' + fechaCorta(registro.fechaDescarga) + ')<br>' +
+          '<button id="btnVerificar" style="background:#fff;color:#8a6000">🔍 Verificar cambios</button>';
+      }
+      var bA = document.getElementById('btnActualizarBib');
+      if (bA) bA.addEventListener('click', function () { ejecutarAccion('guardarEnBiblioteca'); });
+      var bV = document.getElementById('btnVerificar');
+      if (bV) bV.addEventListener('click', function () { ejecutarAccion('verificarCambios'); });
+    });
+  }
+
+  function mostrarResultadoVerificacion(r) {
+    if (!r || !r.ok) {
+      cambiosBox.style.display = 'block';
+      cambiosBox.textContent = '❌ No se pudo verificar contra la biblioteca.';
+      return;
+    }
+    if (r.noGuardado) { cambiosBox.style.display = 'none'; return; }
+    cambiosBox.style.display = 'block';
+    if (r.cambio) {
+      cambiosBox.innerHTML =
+        '🔴 ' + r.nuevasDetectadas + ' actuaciones nuevas detectadas.<br>' +
+        '<button id="btnActualizarBib">💾 Actualizar biblioteca</button>';
+      document.getElementById('btnActualizarBib').addEventListener('click', function () { ejecutarAccion('guardarEnBiblioteca'); });
+    } else {
+      cambiosBox.textContent = '✅ Al día — sin actuaciones nuevas desde la última descarga.';
+    }
+  }
+
+  chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+    var tab  = tabs && tabs[0];
+    var url  = tab && tab.url || '';
+
+    if (!url.includes('scw.pjn.gov.ar')) {
+      bloquear();
+      estado.textContent = '⚠️ Navegá al Sistema de Consulta Web del PJN para usar esta extensión.';
+      return;
+    }
+
+    if (url.includes('actuacionesHistoricas')) {
+      bloquear();
+      estado.textContent = '📜 Scrapeando actuaciones históricas...\n\nCuando termine, volvé al expediente con "Volver al expediente" y usá la extensión desde ahí.';
+      return;
+    }
+
+    if (!url.includes('expediente.seam')) {
+      bloquear();
+      estado.textContent = '⚠️ Abrí un expediente en el SCW para usar esta extensión.';
+      return;
+    }
+
+    var cidMatch = url.match(/cid=(\d+)/);
+    var cid = cidMatch ? cidMatch[1] : null;
+    var keysToGet = ['descargaProgreso', 'pjnFindPdfsPendiente', 'pjnFindPdfsResult'];
+    if (cid) keysToGet.push('pjnHistoricas_' + cid);
+
+    chrome.storage.local.get(keysToGet, function (data) {
+
+      // Caso 1: resultado de findPdfs listo para procesar
+      if (data.pjnFindPdfsResult && data.pjnFindPdfsPendiente) {
+        bloquear();
+        estado.textContent = '🔍 Detectando documentos...';
+        var pendiente = data.pjnFindPdfsPendiente;
+        chrome.storage.local.remove(['pjnFindPdfsResult', 'pjnFindPdfsPendiente'], function() {
+          procesarResultadoFindPdfs(data.pjnFindPdfsResult, pendiente.tabId, pendiente.accion);
+        });
+        return;
+      }
+
+      // Caso 2: findPdfs en curso
+      if (data.pjnFindPdfsPendiente) {
+        bloquear();
+        estado.textContent = '🔍 Detectando documentos...';
+        var pendiente = data.pjnFindPdfsPendiente;
+        iniciarPollingFindPdfs(pendiente.tabId, pendiente.accion);
+        return;
+      }
+
+      // Caso 3: descarga en curso
+      if (data.descargaProgreso && !data.descargaProgreso.terminado) {
+        bloquear();
+        mostrarProgreso(data.descargaProgreso);
+        iniciarPollingProgreso();
+        return;
+      }
+
+      // Mostrar info de históricas guardadas para este expediente
+      if (cid && data['pjnHistoricas_' + cid] && data['pjnHistoricas_' + cid].length > 0) {
+        estado.textContent = '📜 Históricas cargadas: ' + data['pjnHistoricas_' + cid].length + ' docs\n✅ Se incluirán al descargar.';
+      } else if (cid) {
+        estado.textContent = '💡 Este expediente puede tener actuaciones históricas. Para incluirlas, navegá primero a la sección "Actuaciones históricas" del expediente y luego volvé acá.';
+      }
+
+      if (cid) mostrarEstadoBiblioteca(cid);
+    });
+  });
+
+  btnLibro.addEventListener('click', function () {
+    ejecutarAccion('abrirVisor');
+  });
+
+  btnDescargar.addEventListener('click', function () {
+    ejecutarAccion('crearYDescargarZip');
+  });
+
+  btnGuardar.addEventListener('click', function () {
+    ejecutarAccion('guardarEnBiblioteca');
+  });
+
+  function ejecutarAccion(accion) {
+    bloquear();
+    estado.textContent = accion === 'verificarCambios'
+      ? '🔍 Comparando con la biblioteca...'
+      : (accion === 'guardarEnBiblioteca' ? '🔍 Detectando documentos para guardar...' : '🔍 Detectando documentos...');
+
+    chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+      var tab = tabs && tabs[0];
+      if (!tab) { mostrarError('No se encontró la pestaña activa.'); desbloquear(); return; }
+
+      var tabIdOriginal = tab.id;
+      var cidMatch = (tab.url || '').match(/cid=(\d+)/);
+      var cid = cidMatch ? cidMatch[1] : null;
+
+      chrome.storage.local.remove(['pjnFindPdfsResult'], function() {
+        chrome.storage.local.set({ pjnFindPdfsPendiente: { tabId: tabIdOriginal, accion: accion, cid: cid } });
+
+        chrome.tabs.sendMessage(tabIdOriginal, { action: 'findPdfs' }, function(resp) {
+          if (chrome.runtime.lastError) return;
+          if (resp && resp.ok) {
+            chrome.storage.local.set({ pjnFindPdfsResult: resp });
+          }
+        });
+
+        iniciarPollingFindPdfs(tabIdOriginal, accion, cid);
+      });
+    });
+  }
+
+  function iniciarPollingFindPdfs(tabIdOriginal, accion, cid) {
+    var intentos = 90;
+    var interval = setInterval(function() {
+      chrome.storage.local.get(['pjnFindPdfsResult'], function(data) {
+        if (data.pjnFindPdfsResult) {
+          clearInterval(interval);
+          chrome.storage.local.remove(['pjnFindPdfsResult', 'pjnFindPdfsPendiente']);
+          procesarResultadoFindPdfs(data.pjnFindPdfsResult, tabIdOriginal, accion, cid);
+        } else if (--intentos <= 0) {
+          clearInterval(interval);
+          chrome.storage.local.remove(['pjnFindPdfsPendiente']);
+          mostrarError('Tiempo de espera agotado.');
+          desbloquear();
+        }
+      });
+    }, 1000);
+  }
+
+  function procesarResultadoFindPdfs(resp, tabIdOriginal, accion, cid) {
+    if (!resp || !resp.ok) {
+      mostrarError((resp && resp.error) || 'Error al detectar.');
+      desbloquear();
+      return;
+    }
+
+    var archivos   = resp.archivos;
+    var folderName = resp.folderName;
+
+    if (!archivos || !archivos.length) {
+      mostrarError('No se encontraron documentos descargables.');
+      desbloquear();
+      return;
+    }
+
+    // Verificar cambios no descarga nada: solo compara contra la biblioteca.
+    if (accion === 'verificarCambios') {
+      estado.textContent = '🔍 Comparando ' + archivos.length + ' documentos con la biblioteca...';
+      chrome.runtime.sendMessage({ action: 'bibliotecaVerificarCambios', cid: cid, archivos: archivos }, function (r) {
+        desbloquear();
+        estado.textContent = '';
+        mostrarResultadoVerificacion(r);
+      });
+      return;
+    }
+
+    var nHist = archivos.filter(function(a) { return a.esHistorica; }).length;
+    var nAct  = archivos.length - nHist;
+
+    var accionTexto = accion === 'abrirVisor' ? '⏳ Cargando visor...'
+      : accion === 'guardarEnBiblioteca' ? '⏳ Guardando en biblioteca...'
+      : '⏳ Preparando ZIP...';
+
+    estado.textContent =
+      '📋 Encontrados: ' + archivos.length + ' documentos\n' +
+      (nHist > 0 ? '📜 Históricas: ' + nHist + '\n' : '') +
+      '📄 Actuales: ' + nAct + '\n\n' + accionTexto;
+
+    chrome.storage.local.set({
+      descargaProgreso: { total: archivos.length, descargados: 0, errores: 0, terminado: false }
+    });
+
+    chrome.tabs.sendMessage(tabIdOriginal, {
+      action:     accion,
+      archivos:   archivos,
+      folderName: folderName,
+      startIndex: 1
+    });
+
+    iniciarPollingProgreso();
+  }
+
+  function iniciarPollingProgreso() {
+    if (pollingInterval) return;
+    pollingInterval = setInterval(function () {
+      chrome.storage.local.get(['descargaProgreso'], function (data) {
+        var p = data.descargaProgreso;
+        if (!p) return;
+        mostrarProgreso(p);
+        if (p.terminado) {
+          clearInterval(pollingInterval);
+          pollingInterval = null;
+          desbloquear();
+          chrome.storage.local.remove(['descargaProgreso']);
+        }
+      });
+    }, 800);
+  }
+
+  function mostrarProgreso(p) {
+    var pct = p.total > 0 ? Math.round((p.descargados / p.total) * 100) : 0;
+    estado.textContent =
+      (p.terminado ? '✅ Listo\n' : '⏳ Procesando...\n') +
+      'Progreso: ' + p.descargados + ' / ' + p.total + ' (' + pct + '%)' +
+      (p.errores > 0 ? '\n⚠️ Errores: ' + p.errores : '');
+  }
+
+  function mostrarError(msg) { estado.textContent = '❌ ' + msg; }
+  function bloquear()   { btnLibro.disabled = true;  btnDescargar.disabled = true;  btnGuardar.disabled = true; }
+  function desbloquear(){ btnLibro.disabled = false; btnDescargar.disabled = false; btnGuardar.disabled = false; }
+});
