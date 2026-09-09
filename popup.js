@@ -172,6 +172,15 @@ document.addEventListener('DOMContentLoaded', function () {
           if (!seguir) { desbloquear(); estado.textContent = ''; return; }
         }
 
+        if (resp.paginacionIncompleta) {
+          var seguir2 = confirm(
+            '⚠️ El recorrido de páginas de actuaciones se cortó antes de tiempo (demoró más de lo esperado en alguna página).\n\n' +
+            'Es posible que falten actuaciones más viejas, incluida la primera (la demanda). Podés reintentar — a veces es solo una demora puntual del sistema — o continuar igual con lo que se detectó hasta ahora.\n\n' +
+            '¿Continuar igual?'
+          );
+          if (!seguir2) { desbloquear(); estado.textContent = ''; return; }
+        }
+
         continuarUnificado(actuaciones, resp);
       });
     });
@@ -185,7 +194,8 @@ document.addEventListener('DOMContentLoaded', function () {
       action: 'descargarExpedienteUnificado',
       actuaciones: actuaciones,
       tituloExpediente: resp.tituloExpediente || resp.folderName || 'Expediente',
-      historicasFaltantes: !!resp.historicasFaltantes
+      historicasFaltantes: !!resp.historicasFaltantes,
+      paginacionIncompleta: !!resp.paginacionIncompleta
     }, function (r) {
       detenerPollingUnificado();
       desbloquear();

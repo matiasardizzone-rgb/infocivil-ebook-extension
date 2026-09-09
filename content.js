@@ -67,7 +67,13 @@
             historicasFaltantes = !(key in data);
           }
 
-          const resultado = { ok: true, actuaciones, archivos, folderName, tituloExpediente, total: actuaciones.length, historicasFaltantes };
+          // Segundo aviso posible para el mismo síntoma (falta la actuación
+          // más vieja): la paginación de actuaciones ACTUALES se cortó por
+          // timeout antes de llegar genuinamente al final, en vez de que el
+          // expediente realmente no tenga históricas.
+          const paginacionIncompleta = !ultimaPaginacionCompleta;
+
+          const resultado = { ok: true, actuaciones, archivos, folderName, tituloExpediente, total: actuaciones.length, historicasFaltantes, paginacionIncompleta };
           chrome.storage.local.set({ pjnFindPdfsResult: resultado });
           sendResponse(resultado);
         } catch (e) {
@@ -204,6 +210,11 @@
   chrome.runtime.onMessage.addListener(window.__pjnListener);
 
   // ─── Recolección completa ─────────────────────────────────────────────────
+
+  // Se setea en cada corrida de recorrerTodasLasPaginas(); permite avisar si
+  // la paginación de actuaciones actuales se cortó por timeout en vez de
+  // llegar genuinamente al final (ver obtenerActuaciones más abajo).
+  let ultimaPaginacionCompleta = true;
 
   async function recolectarTodosLosDocumentos() {
     const href = window.location.href;
@@ -811,6 +822,7 @@ init();
 
   async function recorrerTodasLasPaginas(){
     const r=[],u=new Set();
+    ultimaPaginacionCompleta = true;
     await esperar(1500);await irAPrimeraPagina();await esperar(3000);
     let n=obtenerPaginaActual();
     while(true){
@@ -820,7 +832,20 @@ init();
       if(!oc){console.log('[PJN] Fin actuales. Total:',r.length);break;}
       const h=obtenerHtmlTabla();
       await ejecutarEnPaginaViaBg(oc);
-      if(!(await esperarCambioDOM(h,8000))){console.warn('[PJN] Timeout pág',n+1);break;}
+      let cambio = await esperarCambioDOM(h,8000);
+      if(!cambio){
+        // Puede ser una respuesta lenta puntual de RichFaces, no
+        // necesariamente el final real de la paginación — reintentamos una
+        // vez con más margen antes de cortar y avisar que quedó incompleta.
+        console.warn('[PJN] Timeout pág',n+1,'— reintentando una vez...');
+        await ejecutarEnPaginaViaBg(oc);
+        cambio = await esperarCambioDOM(h,15000);
+        if(!cambio){
+          console.warn('[PJN] Timeout definitivo en pág',n+1,'— paginación quedó incompleta.');
+          ultimaPaginacionCompleta = false;
+          break;
+        }
+      }
       n++;
     }
     return r.reverse();
