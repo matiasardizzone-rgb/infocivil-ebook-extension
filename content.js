@@ -26,6 +26,45 @@
       return true;
     }
 
+    // Alias liviano de 'findPdfs' para el flujo de PDF unificado: además de
+    // 'archivos' (compatibilidad con el resto de la extensión), devuelve
+    // 'actuaciones' con fecha/tipo separados y las dos variantes de URL que
+    // necesita el unificador (urlPdf para descargar, urlPublica para el pie
+    // y el índice — sin el parámetro download=true).
+    if (message.action === 'obtenerActuaciones') {
+      (async () => {
+        try {
+          const folderName = obtenerNombreExpediente();
+          const tituloExpediente = obtenerCaratula() || folderName;
+          const archivos = await recolectarTodosLosDocumentos();
+          const actuaciones = archivos.map((a, i) => {
+            let urlPdf = a.url ? String(a.url) : '';
+            if (urlPdf && urlPdf.indexOf('http') !== 0) urlPdf = 'https://scw.pjn.gov.ar' + urlPdf;
+            if (urlPdf.indexOf('/scw/viewer') !== -1 && urlPdf.indexOf('download=true') === -1)
+              urlPdf += (urlPdf.indexOf('?') !== -1 ? '&' : '?') + 'download=true';
+            const urlPublica = urlPdf.replace(/[&?]download=true/g, '');
+            return {
+              numero: i + 1,
+              titulo: a.titulo || 'documento',
+              fecha: a.fecha || '',
+              tipo: a.tipo || '',
+              url: urlPdf, urlPdf, urlPublica,
+              esHistorica: a.esHistorica || false,
+            };
+          });
+          const resultado = { ok: true, actuaciones, archivos, folderName, tituloExpediente, total: actuaciones.length };
+          chrome.storage.local.set({ pjnFindPdfsResult: resultado });
+          sendResponse(resultado);
+        } catch (e) {
+          console.error('[PJN] Error en obtenerActuaciones:', e);
+          const error = { ok: false, error: e.message || String(e) };
+          chrome.storage.local.set({ pjnFindPdfsResult: error });
+          sendResponse(error);
+        }
+      })();
+      return true;
+    }
+
     if (message.action === 'abrirVisor') {
       (async () => {
         const archivos   = message.archivos || [];
@@ -329,6 +368,8 @@
       r.push({
         url,
         titulo: sanitizar(`${foja.trim()} - ${fecha.trim()} - ${tipo.trim()} - ${desc.trim()}`),
+        fecha: fecha.trim(),
+        tipo: tipo.trim(),
         extension: '.pdf',
         esHistorica
       });
@@ -766,7 +807,15 @@ init();
       let url=link.getAttribute('href');if(!url)return;
       if(url.includes('/scw/viewer')&&!url.includes('download=true'))url+=(url.includes('?')?'&':'?')+'download=true';
       if(u.has(url))return;u.add(url);
-      r.push({url,titulo:sanitizar(`${extraerTexto(fila,'td:nth-child(6)')} - ${extraerTexto(fila,'td:nth-child(3)')} - ${extraerTexto(fila,'td:nth-child(4)')} - ${extraerTexto(fila,'td:nth-child(5)')}`),extension:'.pdf',esHistorica:false});
+      // nth-child es 1-based: 3=fecha, 4=tipo, 5=descripcion, 6=fojas
+      const fecha = extraerTexto(fila,'td:nth-child(3)');
+      const tipo  = extraerTexto(fila,'td:nth-child(4)');
+      r.push({
+        url,
+        titulo: sanitizar(`${extraerTexto(fila,'td:nth-child(6)')} - ${fecha} - ${tipo} - ${extraerTexto(fila,'td:nth-child(5)')}`),
+        fecha, tipo,
+        extension:'.pdf', esHistorica:false
+      });
     });
   }
 

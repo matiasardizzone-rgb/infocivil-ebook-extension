@@ -2,10 +2,12 @@ document.addEventListener('DOMContentLoaded', function () {
   var estado       = document.getElementById('estado');
   var btnLibro     = document.getElementById('btnLibro');
   var btnDescargar = document.getElementById('btnDescargar');
+  var btnUnificado = document.getElementById('btnUnificado');
   var btnGuardar   = document.getElementById('btnGuardar');
   var btnBiblioteca= document.getElementById('btnBiblioteca');
   var cambiosBox   = document.getElementById('cambiosBox');
   var pollingInterval = null;
+  var pollingUnificado = null;
 
   btnBiblioteca.addEventListener('click', function () {
     chrome.tabs.create({ url: chrome.runtime.getURL('biblioteca.html') });
@@ -139,6 +141,67 @@ document.addEventListener('DOMContentLoaded', function () {
     ejecutarAccion('guardarEnBiblioteca');
   });
 
+  btnUnificado.addEventListener('click', function () {
+    bloquear();
+    estado.textContent = '🔍 Detectando actuaciones...';
+
+    chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+      var tab = tabs && tabs[0];
+      if (!tab) { mostrarError('No se encontró la pestaña activa.'); desbloquear(); return; }
+
+      chrome.tabs.sendMessage(tab.id, { action: 'obtenerActuaciones' }, function (resp) {
+        if (chrome.runtime.lastError || !resp || !resp.ok) {
+          mostrarError((resp && resp.error) || 'No se pudieron detectar las actuaciones.');
+          desbloquear();
+          return;
+        }
+        var actuaciones = resp.actuaciones || resp.archivos || [];
+        if (!actuaciones.length) {
+          mostrarError('No se encontraron actuaciones para unificar.');
+          desbloquear();
+          return;
+        }
+
+        estado.textContent = '⏳ Descargando ' + actuaciones.length + ' actuaciones y armando el PDF unificado...\n(esto puede tardar según el tamaño del expediente)';
+        iniciarPollingUnificado();
+
+        chrome.runtime.sendMessage({
+          action: 'descargarExpedienteUnificado',
+          actuaciones: actuaciones,
+          tituloExpediente: resp.tituloExpediente || resp.folderName || 'Expediente'
+        }, function (r) {
+          detenerPollingUnificado();
+          desbloquear();
+          if (chrome.runtime.lastError || !r || !r.ok) {
+            mostrarError((r && r.error) || 'No se pudo generar el PDF unificado.');
+            return;
+          }
+          estado.textContent = '✅ PDF unificado listo (' + r.descargados + '/' + r.total + ' actuaciones incorporadas' +
+            (r.errores > 0 ? ', ' + r.errores + ' con página de error' : '') + ').\nSe abrió el diálogo para guardarlo.';
+        });
+      });
+    });
+  });
+
+  function iniciarPollingUnificado() {
+    if (pollingUnificado) return;
+    pollingUnificado = setInterval(function () {
+      chrome.storage.local.get(['unificadoProgreso'], function (data) {
+        var p = data.unificadoProgreso;
+        if (!p) return;
+        if (p.error) { estado.textContent = '❌ ' + p.error; return; }
+        var pct = p.total > 0 ? Math.round((p.descargados / p.total) * 100) : 0;
+        var etapa = p.etapa === 'armando' ? '📎 Armando PDF unificado...' : '⏳ Descargando actuaciones...';
+        estado.textContent = etapa + '\n' + p.descargados + ' / ' + p.total + ' (' + pct + '%)' +
+          (p.errores > 0 ? '\n⚠️ Con error hasta ahora: ' + p.errores : '');
+      });
+    }, 800);
+  }
+  function detenerPollingUnificado() {
+    if (pollingUnificado) { clearInterval(pollingUnificado); pollingUnificado = null; }
+    chrome.storage.local.remove(['unificadoProgreso']);
+  }
+
   function ejecutarAccion(accion) {
     bloquear();
     estado.textContent = accion === 'verificarCambios'
@@ -265,6 +328,6 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function mostrarError(msg) { estado.textContent = '❌ ' + msg; }
-  function bloquear()   { btnLibro.disabled = true;  btnDescargar.disabled = true;  btnGuardar.disabled = true; }
-  function desbloquear(){ btnLibro.disabled = false; btnDescargar.disabled = false; btnGuardar.disabled = false; }
+  function bloquear()   { btnLibro.disabled = true;  btnDescargar.disabled = true;  btnGuardar.disabled = true;  btnUnificado.disabled = true; }
+  function desbloquear(){ btnLibro.disabled = false; btnDescargar.disabled = false; btnGuardar.disabled = false; btnUnificado.disabled = false; }
 });

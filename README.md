@@ -8,6 +8,18 @@ Poder Judicial de la Nación (scw.pjn.gov.ar). Permite:
 - Descargar los documentos en un ZIP.
 - Ver el expediente como "libro" con un visor PDF.js integrado (TOC,
   zoom, barra de URL del documento).
+- Descargar el expediente como **un único PDF unificado**, ordenado de
+  la actuación más vieja a la más actual, con:
+  - Portada + índice al principio, cada entrada como link interno a la
+    primera página de esa actuación.
+  - Pie de página con el link público (visible y clicable) del SCW en
+    **todas** las páginas de cada actuación, para trazabilidad.
+  - Sin páginas separadoras entre actuaciones.
+  - Página de error explícita ("ACTUACIÓN NO DISPONIBLE") cuando una
+    descarga falla, en vez de omitirla en silencio.
+  - **Copia de trabajo**: al unificar, las firmas electrónicas embebidas
+    de cada PDF original pierden validez criptográfica — para eso sigue
+    estando el ZIP con los originales.
 - Verificar la firma electrónica embebida en los PDF contra la cadena de
   certificación del PJN (`firma.js`).
 - Guardar expedientes en una biblioteca local (IndexedDB vía `db.js`) y
@@ -25,8 +37,11 @@ Poder Judicial de la Nación (scw.pjn.gov.ar). Permite:
 | `db.js` | Capa de persistencia (IndexedDB) |
 | `firma.js` | Verificación de certificados de firma electrónica (forge) |
 | `pjn_visor_libro_prototipo.html` | Prototipo del visor "libro" |
-| `pdf_min.js` / `pdf_worker_min.js` | PDF.js (vendored) |
+| `pdf_min.js` / `pdf_worker_min.js` | PDF.js (vendored) — visor "libro" |
 | `forge_min.js` | node-forge (vendored) para verificación de firmas |
+| `unificador.js` | Arma el PDF unificado: índice hipervinculado + pie con link público |
+| `pdf_lib.min.js` | pdf-lib 1.17.1 (vendored, build UMD) |
+| `pdf_lib.esm.js` | Wrapper ESM sobre `pdf_lib.min.js` (el UMD no expone exports ESM) |
 
 ## Estado / pendientes
 

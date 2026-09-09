@@ -1,7 +1,110 @@
 import * as db from './db.js';
+import { generarPdfUnificado } from './unificador.js';
 
 chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   if (!message) return;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // PDF UNIFICADO — descarga cada actuación, arma un único PDF con índice
+  // hipervinculado y link público en el pie de cada página (unificador.js).
+  // ═══════════════════════════════════════════════════════════════════
+
+  if (message.action === 'descargarExpedienteUnificado') {
+    (async () => {
+      try {
+        const actuacionesIn = message.actuaciones || [];
+        const tituloExpediente = message.tituloExpediente || 'Expediente';
+        if (!actuacionesIn.length) { sendResponse({ ok: false, error: 'No hay actuaciones para unificar.' }); return; }
+
+        // Normalizar URLs por si vinieran relativas o sin download=true
+        // (obtenerActuaciones en content.js ya las arma completas, pero no
+        // asumimos: este handler también puede invocarse a futuro desde
+        // otro flujo, p.ej. biblioteca).
+        const actuaciones = actuacionesIn.map((a, i) => {
+          let urlPdf = a.urlPdf || a.url || '';
+          if (urlPdf && urlPdf.indexOf('http') !== 0) urlPdf = 'https://scw.pjn.gov.ar' + urlPdf;
+          if (urlPdf.indexOf('/scw/viewer') !== -1 && urlPdf.indexOf('download=true') === -1)
+            urlPdf += (urlPdf.indexOf('?') !== -1 ? '&' : '?') + 'download=true';
+          const urlPublica = a.urlPublica || urlPdf.replace(/[&?]download=true/g, '');
+          return {
+            numero: a.numero || i + 1,
+            titulo: a.titulo || 'Actuación ' + (i + 1),
+            fecha: a.fecha || '',
+            tipo: a.tipo || '',
+            urlPdf, urlPublica,
+            bytes: null, error: null,
+          };
+        });
+
+        chrome.storage.local.set({ unificadoProgreso: { total: actuaciones.length, descargados: 0, errores: 0, terminado: false } });
+
+        const CONC = 3;
+        let siguiente = 0, descargados = 0, errores = 0;
+        async function worker() {
+          while (siguiente < actuaciones.length) {
+            const act = actuaciones[siguiente++];
+            try {
+              const resp = await fetch(act.urlPdf, { credentials: 'include' });
+              if (!resp.ok) throw new Error('HTTP ' + resp.status);
+              const buffer = await resp.arrayBuffer();
+              const bytes = new Uint8Array(buffer);
+              // Igual chequeo de firma %PDF- que en content.js: evita que una
+              // página de error/sesión (200 OK con HTML) quede incrustada
+              // como si fuera el documento — el unificador la reemplaza por
+              // una página de error explícita en su lugar.
+              if (bytes.length >= 5 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46 && bytes[4] === 0x2D) {
+                act.bytes = bytes;
+                descargados++;
+              } else {
+                act.error = 'La respuesta no es un PDF válido (posible sesión vencida)';
+                errores++;
+              }
+            } catch (e) {
+              act.error = e.message;
+              errores++;
+            }
+            chrome.storage.local.set({ unificadoProgreso: { total: actuaciones.length, descargados, errores, terminado: false, etapa: 'descargando' } });
+          }
+        }
+        await Promise.all(Array.from({ length: Math.min(CONC, actuaciones.length) }, worker));
+
+        chrome.storage.local.set({ unificadoProgreso: { total: actuaciones.length, descargados, errores, terminado: false, etapa: 'armando' } });
+
+        const pdfBytes = await generarPdfUnificado({ tituloExpediente, actuaciones });
+        const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+
+        let url;
+        if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+          url = URL.createObjectURL(blob);
+        } else {
+          // Fallback por si el service worker no soporta createObjectURL:
+          // data URI en base64 (funciona igual con chrome.downloads.download).
+          const b64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          url = 'data:application/pdf;base64,' + b64;
+        }
+
+        const nombreArchivo = sanitizarNombre(tituloExpediente).slice(0, 50) + '_UNIFICADO.pdf';
+        chrome.downloads.download({ url, filename: nombreArchivo, saveAs: true }, () => {
+          if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function' && url.indexOf('blob:') === 0) {
+            setTimeout(() => URL.revokeObjectURL(url), 30000);
+          }
+        });
+
+        chrome.storage.local.set({ unificadoProgreso: { total: actuaciones.length, descargados, errores, terminado: true } });
+        sendResponse({ ok: true, descargados, errores, total: actuaciones.length });
+      } catch (err) {
+        console.error('[PJN BG] Error armando PDF unificado:', err);
+        chrome.storage.local.set({ unificadoProgreso: { terminado: true, error: err.message } });
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
+    return true;
+  }
 
   // ═══════════════════════════════════════════════════════════════════
   // BIBLIOTECA — persistencia local en IndexedDB (ver db.js)
@@ -387,6 +490,10 @@ function sendMessageATab(tabId, msg) {
       if (chrome.runtime.lastError) resolve(null); else resolve(resp);
     });
   });
+}
+
+function sanitizarNombre(texto) {
+  return String(texto || 'Expediente').replace(/[/\\?%*:|"<>]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function base64ABytes(base64) {
