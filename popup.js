@@ -162,26 +162,41 @@ document.addEventListener('DOMContentLoaded', function () {
           return;
         }
 
-        estado.textContent = '⏳ Descargando ' + actuaciones.length + ' actuaciones y armando el PDF unificado...\n(esto puede tardar según el tamaño del expediente)';
-        iniciarPollingUnificado();
+        if (resp.historicasFaltantes) {
+          var seguir = confirm(
+            '⚠️ No se detectaron actuaciones históricas cargadas para este expediente.\n\n' +
+            'Si este expediente tiene actuaciones anteriores a la fecha en que empezó a operar el sistema actual (por ejemplo la demanda inicial), el PDF unificado va a arrancar más adelante en el tiempo, sin ellas.\n\n' +
+            'Para incluirlas: cancelá, andá a la sección "Actuaciones históricas" del expediente, esperá a que cargue la tabla, volvé al expediente y probá de nuevo.\n\n' +
+            '¿Continuar igual, sin las históricas?'
+          );
+          if (!seguir) { desbloquear(); estado.textContent = ''; return; }
+        }
 
-        chrome.runtime.sendMessage({
-          action: 'descargarExpedienteUnificado',
-          actuaciones: actuaciones,
-          tituloExpediente: resp.tituloExpediente || resp.folderName || 'Expediente'
-        }, function (r) {
-          detenerPollingUnificado();
-          desbloquear();
-          if (chrome.runtime.lastError || !r || !r.ok) {
-            mostrarError((r && r.error) || 'No se pudo generar el PDF unificado.');
-            return;
-          }
-          estado.textContent = '✅ PDF unificado listo (' + r.descargados + '/' + r.total + ' actuaciones incorporadas' +
-            (r.errores > 0 ? ', ' + r.errores + ' con página de error' : '') + ').\nSe abrió el diálogo para guardarlo.';
-        });
+        continuarUnificado(actuaciones, resp);
       });
     });
   });
+
+  function continuarUnificado(actuaciones, resp) {
+    estado.textContent = '⏳ Descargando ' + actuaciones.length + ' actuaciones y armando el PDF unificado...\n(esto puede tardar según el tamaño del expediente)';
+    iniciarPollingUnificado();
+
+    chrome.runtime.sendMessage({
+      action: 'descargarExpedienteUnificado',
+      actuaciones: actuaciones,
+      tituloExpediente: resp.tituloExpediente || resp.folderName || 'Expediente',
+      historicasFaltantes: !!resp.historicasFaltantes
+    }, function (r) {
+      detenerPollingUnificado();
+      desbloquear();
+      if (chrome.runtime.lastError || !r || !r.ok) {
+        mostrarError((r && r.error) || 'No se pudo generar el PDF unificado.');
+        return;
+      }
+      estado.textContent = '✅ PDF unificado listo (' + r.descargados + '/' + r.total + ' actuaciones incorporadas' +
+        (r.errores > 0 ? ', ' + r.errores + ' con página de error' : '') + ').\nSe abrió el diálogo para guardarlo.';
+    });
+  }
 
   function iniciarPollingUnificado() {
     if (pollingUnificado) return;

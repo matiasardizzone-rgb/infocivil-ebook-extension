@@ -14,6 +14,7 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
       try {
         const actuacionesIn = message.actuaciones || [];
         const tituloExpediente = message.tituloExpediente || 'Expediente';
+        const historicasFaltantes = !!message.historicasFaltantes;
         if (!actuacionesIn.length) { sendResponse({ ok: false, error: 'No hay actuaciones para unificar.' }); return; }
 
         // Normalizar URLs por si vinieran relativas o sin download=true
@@ -31,6 +32,7 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
             titulo: a.titulo || 'Actuación ' + (i + 1),
             fecha: a.fecha || '',
             tipo: a.tipo || '',
+            descripcion: a.descripcion || '',
             urlPdf, urlPublica,
             bytes: null, error: null,
           };
@@ -70,7 +72,7 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
 
         chrome.storage.local.set({ unificadoProgreso: { total: actuaciones.length, descargados, errores, terminado: false, etapa: 'armando' } });
 
-        const pdfBytes = await generarPdfUnificado({ tituloExpediente, actuaciones });
+        const pdfBytes = await generarPdfUnificado({ tituloExpediente, actuaciones, historicasFaltantes });
         const blob = new Blob([pdfBytes], { type: 'application/pdf' });
 
         let url;

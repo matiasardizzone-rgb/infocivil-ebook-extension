@@ -48,11 +48,26 @@
               titulo: a.titulo || 'documento',
               fecha: a.fecha || '',
               tipo: a.tipo || '',
+              descripcion: a.descripcion || '',
               url: urlPdf, urlPdf, urlPublica,
               esHistorica: a.esHistorica || false,
             };
           });
-          const resultado = { ok: true, actuaciones, archivos, folderName, tituloExpediente, total: actuaciones.length };
+
+          // Aviso: si el usuario nunca visitó "Actuaciones históricas" para
+          // este expediente, esa sección no se cargó — y ahí suele estar
+          // el inicio del expediente (demanda, primeras providencias). Sin
+          // este aviso el PDF unificado sale "incompleto" en silencio,
+          // como pasó con el caso que arrancaba en 2024 en vez de 2021.
+          const cid = obtenerCid();
+          let historicasFaltantes = false;
+          if (cid) {
+            const key = 'pjnHistoricas_' + cid;
+            const data = await new Promise(res => chrome.storage.local.get(key, res));
+            historicasFaltantes = !(key in data);
+          }
+
+          const resultado = { ok: true, actuaciones, archivos, folderName, tituloExpediente, total: actuaciones.length, historicasFaltantes };
           chrome.storage.local.set({ pjnFindPdfsResult: resultado });
           sendResponse(resultado);
         } catch (e) {
@@ -346,6 +361,17 @@
 
   function parseHTML(html) { return new DOMParser().parseFromString(html, 'text/html'); }
 
+  // El SCW mete etiquetas de accesibilidad (para lectores de pantalla) como
+  // texto plano en varias celdas — quedan pegadas al valor real cuando se
+  // lee con textContent/innerText ("Tipo actuacion ESCRITO AGREGADO",
+  // "Detalle DR. INGENIERI..."). Sin sacarlas, cualquier texto armado con
+  // estos campos (el índice del PDF unificado, por ejemplo) queda ilegible
+  // y repite "Fecha"/"Tipo actuacion"/"Detalle" en cada línea.
+  function limpiarEtiquetaAccesibilidad(texto) {
+    return (texto || '')
+      .replace(/^\s*(tipo\s+actuaci[oó]n|detalle|fecha)\s*:?\s*/i, '')
+      .trim();
+  }
 
   function scrapearFilas(doc, r, u, esHistorica) {
     doc.querySelectorAll('tbody tr').forEach(fila => {
@@ -362,14 +388,13 @@
       const c = fila.querySelectorAll('td');
       // Columnas: 0=botones, 1=oficina, 2=fecha, 3=tipo, 4=descripcion, 5=fojas
       const foja  = (c[5]||{}).textContent||'';
-      const fecha = (c[2]||{}).textContent||'';
-      const tipo  = (c[3]||{}).textContent||'';
-      const desc  = (c[4]||{}).textContent||'';
+      const fecha = limpiarEtiquetaAccesibilidad((c[2]||{}).textContent||'');
+      const tipo  = limpiarEtiquetaAccesibilidad((c[3]||{}).textContent||'');
+      const desc  = limpiarEtiquetaAccesibilidad((c[4]||{}).textContent||'');
       r.push({
         url,
-        titulo: sanitizar(`${foja.trim()} - ${fecha.trim()} - ${tipo.trim()} - ${desc.trim()}`),
-        fecha: fecha.trim(),
-        tipo: tipo.trim(),
+        titulo: sanitizar(`${foja.trim()} - ${fecha} - ${tipo} - ${desc}`),
+        fecha, tipo, descripcion: desc,
         extension: '.pdf',
         esHistorica
       });
@@ -808,12 +833,13 @@ init();
       if(url.includes('/scw/viewer')&&!url.includes('download=true'))url+=(url.includes('?')?'&':'?')+'download=true';
       if(u.has(url))return;u.add(url);
       // nth-child es 1-based: 3=fecha, 4=tipo, 5=descripcion, 6=fojas
-      const fecha = extraerTexto(fila,'td:nth-child(3)');
-      const tipo  = extraerTexto(fila,'td:nth-child(4)');
+      const fecha = limpiarEtiquetaAccesibilidad(extraerTexto(fila,'td:nth-child(3)'));
+      const tipo  = limpiarEtiquetaAccesibilidad(extraerTexto(fila,'td:nth-child(4)'));
+      const desc  = limpiarEtiquetaAccesibilidad(extraerTexto(fila,'td:nth-child(5)'));
       r.push({
         url,
-        titulo: sanitizar(`${extraerTexto(fila,'td:nth-child(6)')} - ${fecha} - ${tipo} - ${extraerTexto(fila,'td:nth-child(5)')}`),
-        fecha, tipo,
+        titulo: sanitizar(`${extraerTexto(fila,'td:nth-child(6)')} - ${fecha} - ${tipo} - ${desc}`),
+        fecha, tipo, descripcion: desc,
         extension:'.pdf', esHistorica:false
       });
     });

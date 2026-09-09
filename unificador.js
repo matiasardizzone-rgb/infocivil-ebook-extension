@@ -206,18 +206,19 @@ function capacidadPagina(startY) {
   return Math.max(1, Math.floor((startY - INDICE_MARGIN_INFERIOR) / INDICE_STEP) + 1);
 }
 
-function reservarPaginasIndice(pdf, cantidadEntradas) {
-  const capPortada = capacidadPagina(INDICE_START_Y_PORTADA);
+function reservarPaginasIndice(pdf, cantidadEntradas, conAdvertencia) {
+  const startYPortada = conAdvertencia ? INDICE_START_Y_PORTADA - 28 : INDICE_START_Y_PORTADA;
+  const capPortada = capacidadPagina(startYPortada);
   const capCont     = capacidadPagina(INDICE_START_Y_CONT);
   let restantes = cantidadEntradas - capPortada;
   let nPaginasCont = restantes > 0 ? Math.ceil(restantes / capCont) : 0;
 
   const paginas = [pdf.addPage(A4)]; // portada + índice
   for (let i = 0; i < nPaginasCont; i++) paginas.push(pdf.addPage(A4));
-  return { paginas, capPortada, capCont };
+  return { paginas, capPortada, capCont, startYPortada };
 }
 
-function dibujarPortadaEIndice(pdf, paginas, capPortada, capCont, fontBold, fontRegular, tituloExpediente, entradas) {
+function dibujarPortadaEIndice(pdf, paginas, capPortada, capCont, startYPortada, fontBold, fontRegular, tituloExpediente, entradas, historicasFaltantes) {
   const portada = paginas[0];
   const { width, height } = portada.getSize();
 
@@ -231,9 +232,17 @@ function dibujarPortadaEIndice(pdf, paginas, capPortada, capCont, fontBold, font
   portada.drawText('Generado ' + new Date().toLocaleDateString('es-AR') + ' · copia de trabajo, sin validez de firma electrónica', {
     x: MARGIN, y: height - 118, size: 8, font: fontRegular, color: rgb(0.5, 0.5, 0.5),
   });
+  if (historicasFaltantes) {
+    portada.drawText('ADVERTENCIA: no se cargaron actuaciones históricas de este expediente: pueden faltar', {
+      x: MARGIN, y: height - 132, size: 8, font: fontBold, color: rgb(0.75, 0.35, 0),
+    });
+    portada.drawText('actuaciones anteriores a la primera actuación listada abajo (p. ej. la demanda inicial).', {
+      x: MARGIN, y: height - 143, size: 8, font: fontBold, color: rgb(0.75, 0.35, 0),
+    });
+  }
 
   const maxWidthEntrada = width - 2 * MARGIN - 15;
-  let paginaIdx = 0, y = INDICE_START_Y_PORTADA, cap = capPortada;
+  let paginaIdx = 0, y = startYPortada, cap = capPortada;
   let usadosEnPagina = 0;
 
   for (let i = 0; i < entradas.length; i++) {
@@ -258,9 +267,9 @@ function dibujarPortadaEIndice(pdf, paginas, capPortada, capCont, fontBold, font
 }
 
 // ─── Función principal ──────────────────────────────────────────────────
-// actuaciones: [{ numero, titulo, fecha, tipo, urlPublica, bytes: Uint8Array|null, error }]
+// actuaciones: [{ numero, titulo, fecha, tipo, descripcion, urlPublica, bytes: Uint8Array|null, error }]
 // bytes === null (o no pasa parecePdf) ⇒ se dibuja página de error.
-export async function generarPdfUnificado({ tituloExpediente, actuaciones }) {
+export async function generarPdfUnificado({ tituloExpediente, actuaciones, historicasFaltantes }) {
   const titulo = limpiarTextoPDF(tituloExpediente) || 'Expediente unificado';
   const ordenadas = ordenarPorFechaAsc(actuaciones);
 
@@ -271,14 +280,24 @@ export async function generarPdfUnificado({ tituloExpediente, actuaciones }) {
   // 1) Reservar de entrada las páginas de índice (necesitamos sus refs para
   //    los links internos, pero el contenido se dibuja recién al final,
   //    cuando ya sabemos a qué página de contenido apunta cada entrada).
-  const { paginas: paginasIndice, capPortada, capCont } = reservarPaginasIndice(pdf, ordenadas.length);
+  const { paginas: paginasIndice, capPortada, capCont, startYPortada } =
+    reservarPaginasIndice(pdf, ordenadas.length, !!historicasFaltantes);
 
   // 2) Contenido: copiar páginas de cada actuación (o dibujar error) y
   //    aplicar el pie en todas las páginas que le correspondan.
   const entradasIndice = [];
   let numero = 1;
   for (const act of ordenadas) {
-    const titulo = limpiarTextoPDF(act.titulo || ('Actuación ' + numero)) || ('Actuación ' + numero);
+    // Preferimos "tipo - descripción" (más corto y sin ruido) para el índice
+    // y el pie de página; el 'titulo' concatenado original (foja/fecha/tipo/
+    // descripción, usado para nombres de archivo en el resto de la
+    // extensión) queda como respaldo si no vinieran tipo/descripcion.
+    const tipo = limpiarTextoPDF(act.tipo || '');
+    const descripcion = limpiarTextoPDF(act.descripcion || '');
+    const tituloCorto = (tipo || descripcion)
+      ? [tipo, descripcion].filter(Boolean).join(' - ')
+      : (limpiarTextoPDF(act.titulo) || ('Actuación ' + numero));
+    const titulo = tituloCorto;
     const fecha = limpiarTextoPDF(act.fecha || '');
     const urlPublica = limpiarTextoPDF(act.urlPublica || act.url || '');
     let paginasDeEstaActuacion = [];
@@ -312,7 +331,7 @@ export async function generarPdfUnificado({ tituloExpediente, actuaciones }) {
   }
 
   // 3) Ahora sí, dibujar la portada + índice con los links internos ya resueltos.
-  dibujarPortadaEIndice(pdf, paginasIndice, capPortada, capCont, fontBold, fontRegular, titulo, entradasIndice);
+  dibujarPortadaEIndice(pdf, paginasIndice, capPortada, capCont, startYPortada, fontBold, fontRegular, titulo, entradasIndice, !!historicasFaltantes);
 
   pdf.setTitle(titulo);
   pdf.setSubject('Expediente judicial unificado — PJN Descargador');
