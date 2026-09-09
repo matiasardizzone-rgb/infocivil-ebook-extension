@@ -67,6 +67,22 @@ function ordenarPorFechaAsc(actuaciones) {
 
 // ─── Utilidades PDF ───────────────────────────────────────────────────────
 
+// La fuente estándar (Helvetica) usa codificación WinAnsi: no puede dibujar
+// saltos de línea ni caracteres de control (el error típico es
+// "WinAnsi cannot encode \n"), y tampoco caracteres fuera de Latin-1
+// (emojis, comillas tipográficas, etc.). Los títulos vienen del innerText
+// de la tabla del SCW y a veces traen \n adentro de una celda — por eso se
+// limpia CUALQUIER texto antes de pasarlo a drawText o a una anotación.
+function limpiarTextoPDF(texto) {
+  if (!texto) return '';
+  return String(texto)
+    .replace(/[\r\n\t]+/g, ' ')                          // saltos de línea / tabs → espacio
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '') // otros caracteres de control
+    .split('').map(ch => (ch.charCodeAt(0) <= 255 ? ch : '?')).join('') // fuera de Latin-1 → '?'
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function parecePdf(bytes) {
   if (!bytes || bytes.length < 5) return false;
   return bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46 && bytes[4] === 0x2D; // "%PDF-"
@@ -245,6 +261,7 @@ function dibujarPortadaEIndice(pdf, paginas, capPortada, capCont, fontBold, font
 // actuaciones: [{ numero, titulo, fecha, tipo, urlPublica, bytes: Uint8Array|null, error }]
 // bytes === null (o no pasa parecePdf) ⇒ se dibuja página de error.
 export async function generarPdfUnificado({ tituloExpediente, actuaciones }) {
+  const titulo = limpiarTextoPDF(tituloExpediente) || 'Expediente unificado';
   const ordenadas = ordenarPorFechaAsc(actuaciones);
 
   const pdf = await PDFDocument.create();
@@ -261,9 +278,9 @@ export async function generarPdfUnificado({ tituloExpediente, actuaciones }) {
   const entradasIndice = [];
   let numero = 1;
   for (const act of ordenadas) {
-    const titulo = act.titulo || ('Actuación ' + numero);
-    const fecha = act.fecha || '';
-    const urlPublica = act.urlPublica || act.url || '';
+    const titulo = limpiarTextoPDF(act.titulo || ('Actuación ' + numero)) || ('Actuación ' + numero);
+    const fecha = limpiarTextoPDF(act.fecha || '');
+    const urlPublica = limpiarTextoPDF(act.urlPublica || act.url || '');
     let paginasDeEstaActuacion = [];
 
     let bytesOk = act.bytes && parecePdf(act.bytes);
@@ -281,7 +298,7 @@ export async function generarPdfUnificado({ tituloExpediente, actuaciones }) {
     }
 
     if (!bytesOk) {
-      const pErr = dibujarPaginaError(pdf, fontBold, fontRegular, numero, titulo, fecha, urlPublica, act.error);
+      const pErr = dibujarPaginaError(pdf, fontBold, fontRegular, numero, titulo, fecha, urlPublica, limpiarTextoPDF(act.error));
       paginasDeEstaActuacion = [pErr];
     }
 
@@ -295,9 +312,9 @@ export async function generarPdfUnificado({ tituloExpediente, actuaciones }) {
   }
 
   // 3) Ahora sí, dibujar la portada + índice con los links internos ya resueltos.
-  dibujarPortadaEIndice(pdf, paginasIndice, capPortada, capCont, fontBold, fontRegular, tituloExpediente, entradasIndice);
+  dibujarPortadaEIndice(pdf, paginasIndice, capPortada, capCont, fontBold, fontRegular, titulo, entradasIndice);
 
-  pdf.setTitle(tituloExpediente || 'Expediente unificado');
+  pdf.setTitle(titulo);
   pdf.setSubject('Expediente judicial unificado — PJN Descargador');
   pdf.setCreator('PJN Descargador');
   pdf.setProducer('PJN Descargador (pdf-lib)');
