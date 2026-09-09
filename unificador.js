@@ -100,6 +100,37 @@ function truncarTextoSiExcede(font, size, texto, maxWidth) {
   return texto.slice(0, lo) + elipsis;
 }
 
+// Envuelve texto en líneas según el ancho disponible (word-wrap simple,
+// palabra por palabra) — a diferencia de pasarle maxWidth a drawText (que sí
+// envuelve pero no informa cuántas líneas resultaron), esto nos deja saber
+// de antemano cuánto espacio vertical va a ocupar el título del expediente,
+// que puede ser arbitrariamente largo (carátulas largas → título de varias
+// líneas), para no superponerlo con lo que va debajo.
+function envolverTexto(font, size, texto, maxWidth, maxLineas) {
+  const palabras = String(texto || '').split(/\s+/).filter(Boolean);
+  const lineas = [];
+  let actual = '';
+  for (const palabra of palabras) {
+    const candidato = actual ? actual + ' ' + palabra : palabra;
+    if (font.widthOfTextAtSize(candidato, size) <= maxWidth || !actual) {
+      actual = candidato;
+    } else {
+      lineas.push(actual);
+      actual = palabra;
+      if (lineas.length >= maxLineas) break;
+    }
+  }
+  if (actual && lineas.length < maxLineas) lineas.push(actual);
+  if (lineas.length >= maxLineas && palabras.length) {
+    // Puede haber quedado texto sin usar: marcar con "..." la última línea.
+    const consumido = lineas.join(' ').length;
+    if (consumido < texto.length) {
+      lineas[lineas.length - 1] = truncarTextoSiExcede(font, size, lineas[lineas.length - 1] + '...', maxWidth);
+    }
+  }
+  return lineas.length ? lineas : [''];
+}
+
 function pushAnnot(pdf, page, annotRef) {
   if (!page.node.Annots()) page.node.set(PDFName.of('Annots'), pdf.context.obj([]));
   page.node.Annots().push(annotRef);
@@ -206,9 +237,10 @@ function capacidadPagina(startY) {
   return Math.max(1, Math.floor((startY - INDICE_MARGIN_INFERIOR) / INDICE_STEP) + 1);
 }
 
-function reservarPaginasIndice(pdf, cantidadEntradas, lineasAdvertencia) {
-  const offset = (lineasAdvertencia && lineasAdvertencia.length) ? 14 + lineasAdvertencia.length * 11 : 0;
-  const startYPortada = INDICE_START_Y_PORTADA - offset;
+function reservarPaginasIndice(pdf, cantidadEntradas, lineasAdvertencia, lineasExtraTitulo) {
+  const offsetAdvertencia = (lineasAdvertencia && lineasAdvertencia.length) ? 14 + lineasAdvertencia.length * 11 : 0;
+  const offsetTitulo = (lineasExtraTitulo || 0) * 22; // 22 ≈ alto de línea a 18pt
+  const startYPortada = INDICE_START_Y_PORTADA - offsetAdvertencia - offsetTitulo;
   const capPortada = capacidadPagina(startYPortada);
   const capCont     = capacidadPagina(INDICE_START_Y_CONT);
   let restantes = cantidadEntradas - capPortada;
@@ -219,23 +251,26 @@ function reservarPaginasIndice(pdf, cantidadEntradas, lineasAdvertencia) {
   return { paginas, capPortada, capCont, startYPortada };
 }
 
-function dibujarPortadaEIndice(pdf, paginas, capPortada, capCont, startYPortada, fontBold, fontRegular, tituloExpediente, entradas, lineasAdvertencia) {
+function dibujarPortadaEIndice(pdf, paginas, capPortada, capCont, startYPortada, fontBold, fontRegular, tituloLineas, entradas, lineasAdvertencia) {
   const portada = paginas[0];
   const { width, height } = portada.getSize();
 
-  portada.drawText(tituloExpediente || 'Expediente', {
-    x: MARGIN, y: height - 70, size: 18, font: fontBold, color: rgb(0.1, 0.15, 0.3),
-    maxWidth: width - 2 * MARGIN,
+  tituloLineas.forEach((linea, i) => {
+    portada.drawText(linea, {
+      x: MARGIN, y: height - 70 - i * 22, size: 18, font: fontBold, color: rgb(0.1, 0.15, 0.3),
+    });
   });
+  const yTrasTitulo = height - 70 - (tituloLineas.length - 1) * 22;
+
   portada.drawText('Índice de actuaciones (' + entradas.length + ')', {
-    x: MARGIN, y: height - 100, size: 11, font: fontRegular, color: rgb(0.35, 0.35, 0.35),
+    x: MARGIN, y: yTrasTitulo - 30, size: 11, font: fontRegular, color: rgb(0.35, 0.35, 0.35),
   });
   portada.drawText('Generado ' + new Date().toLocaleDateString('es-AR') + ' · copia de trabajo, sin validez de firma electrónica', {
-    x: MARGIN, y: height - 118, size: 8, font: fontRegular, color: rgb(0.5, 0.5, 0.5),
+    x: MARGIN, y: yTrasTitulo - 48, size: 8, font: fontRegular, color: rgb(0.5, 0.5, 0.5),
   });
   (lineasAdvertencia || []).forEach((linea, i) => {
     portada.drawText(linea, {
-      x: MARGIN, y: height - 132 - i * 11, size: 8, font: fontBold, color: rgb(0.75, 0.35, 0),
+      x: MARGIN, y: yTrasTitulo - 62 - i * 11, size: 8, font: fontBold, color: rgb(0.75, 0.35, 0),
     });
   });
 
@@ -289,11 +324,18 @@ export async function generarPdfUnificado({ tituloExpediente, actuaciones, histo
   const fontRegular = await pdf.embedFont(StandardFonts.Helvetica);
   const fontBold    = await pdf.embedFont(StandardFonts.HelveticaBold);
 
+  // El título de portada puede ser arbitrariamente largo (carátulas largas
+  // como "BERGARA, HILDA ESTER Y OTROS C/ LINEA 365 (...) Y OTRO S/DAÑOS Y
+  // PERJUICIOS..."). Se envuelve a mano (máx. 4 líneas) para saber de
+  // antemano cuánto espacio vertical ocupa y no superponerlo con lo que va
+  // debajo (subtítulo, advertencias, índice).
+  const tituloLineas = envolverTexto(fontBold, 18, titulo, A4[0] - 2 * MARGIN, 4);
+
   // 1) Reservar de entrada las páginas de índice (necesitamos sus refs para
   //    los links internos, pero el contenido se dibuja recién al final,
   //    cuando ya sabemos a qué página de contenido apunta cada entrada).
   const { paginas: paginasIndice, capPortada, capCont, startYPortada } =
-    reservarPaginasIndice(pdf, ordenadas.length, lineasAdvertencia);
+    reservarPaginasIndice(pdf, ordenadas.length, lineasAdvertencia, tituloLineas.length - 1);
 
   // 2) Contenido: copiar páginas de cada actuación (o dibujar error) y
   //    aplicar el pie en todas las páginas que le correspondan.
@@ -343,7 +385,7 @@ export async function generarPdfUnificado({ tituloExpediente, actuaciones, histo
   }
 
   // 3) Ahora sí, dibujar la portada + índice con los links internos ya resueltos.
-  dibujarPortadaEIndice(pdf, paginasIndice, capPortada, capCont, startYPortada, fontBold, fontRegular, titulo, entradasIndice, lineasAdvertencia);
+  dibujarPortadaEIndice(pdf, paginasIndice, capPortada, capCont, startYPortada, fontBold, fontRegular, tituloLineas, entradasIndice, lineasAdvertencia);
 
   pdf.setTitle(titulo);
   pdf.setSubject('Expediente judicial unificado — PJN Descargador');
