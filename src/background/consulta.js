@@ -28,7 +28,7 @@ const esperar = ms => new Promise(r => setTimeout(r, ms));
 // que la ventana de consulta se cierre (sigue abierta, sin foco, por si
 // hace falta para las descargas).
 function devolverFoco(sesion) {
-  if (sesion.ventanaPrevia) chrome.windows.update(sesion.ventanaPrevia, { focused: true }).catch(() => {});
+  if (sesion.pestanaPrevia) chrome.tabs.update(sesion.pestanaPrevia, { active: true }).catch(() => {});
 }
 
 // Mensaje al content script de la pestaña; null si todavía no hay uno
@@ -144,43 +144,24 @@ async function esperarStorage(clave, timeoutMs) {
 
 async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, sesion, avisar) {
   const nombre = `${sigla} ${numero}/${anio}`;
-  const previa = await chrome.windows.getLastFocused({ populate: false }).catch(() => null);
+
+  // Varias ventanas aparte (minimizada, chica sin foco, chica con foco,
+  // grande con foco) se probaron para intentar que la búsqueda fuera
+  // invisible, y ninguna funcionó de forma confiable — además de que una
+  // ventana emergente aparte es rara y no se integra con nada.
+  // Se abandona esa idea: la búsqueda pasa por una PESTAÑA común, dentro
+  // de la ventana del operador, igual que si abriera el SCW a mano (que
+  // es, al final, la única forma que se confirmó que funciona). Se
+  // recuerda cuál era la pestaña activa antes para volver a ella apenas
+  // se encuentra el expediente.
+  const pestanaPrevia = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+    .then(t => (t && t[0]) || null).catch(() => null);
 
   avisar('Conectando con el Sistema de Consulta Web…');
-  // Minimizada, NO: Chrome frena los timers de JavaScript en pestañas
-  // minimizadas/ocultas (documento en background), y el SCW hace una
-  // serie de redirecciones propias al abrir home.seam por primera vez que
-  // dependen de eso — con la ventana minimizada podían no terminar de
-  // asentarse nunca dentro del margen de espera.
-  // Tampoco fuera de pantalla del todo: Chrome lo rechaza ("Bounds must
-  // be at least 50% within visible screen space"), a propósito, para
-  // evitar justo este truco.
-  // Una ventana chica sin foco en una esquina (v0.3.0) tampoco alcanzó:
-  // lo más probable es que Windows la haya dejado tapada por completo
-  // detrás del navegador principal del operador — y una ventana tapada
-  // del todo también cuenta como oculta para Chrome, mismo problema que
-  // la minimizada. alwaysOnTop (probado a continuación) no es un
-  // parámetro válido para ventanas de extensión — API distinta.
-  // Queda una sola forma confiable de que Chrome nunca la oculte: darle
-  // foco (igual que si el operador la manejara a mano, o que un
-  // Playwright normal). Se guarda qué ventana estaba activa antes para
-  // devolverle el foco apenas termina — la interrupción queda acotada a
-  // lo que dura la consulta.
-  //
-  // Tamaño de escritorio (no 220×160 como en los intentos anteriores):
-  // las tres estrategias de ventana probadas hasta acá (minimizada,
-  // esquina sin foco, esquina con foco) fallaron igual con ese mismo
-  // tamaño chico — es candidato a ser la variable real, si el SCW sirve
-  // un diseño distinto (o sin el formulario esperado) en una ventana tan
-  // angosta.
-  const ventana = await chrome.windows.create({
-    url: URL_HOME, type: 'popup', state: 'normal', focused: true,
-    left: 0, top: 0, width: 1024, height: 768,
-  });
-  sesion.windowId = ventana.id;
-  sesion.ventanaPrevia = previa && previa.id !== ventana.id ? previa.id : null;
-  const tabId = ventana.tabs[0].id;
+  const tab = await chrome.tabs.create({ url: URL_HOME, active: true });
+  const tabId = tab.id;
   sesion.tabId = tabId;
+  sesion.pestanaPrevia = pestanaPrevia && pestanaPrevia.id !== tabId ? pestanaPrevia.id : null;
 
   const home = await esperarEstado(tabId, e => e.enHome, 30000, 'esperando home.seam');
   if (home.vencido) throw new Error('El SCW no respondió (no cargó la Consulta Pública).');
@@ -270,15 +251,15 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
 export function iniciarConsultas() {
   chrome.runtime.onConnect.addListener(port => {
     if (port.name !== 'consulta') return;
-    const sesion = { windowId: null, tabId: null, cid: null };
+    const sesion = { tabId: null, cid: null };
     const avisar = texto => { try { port.postMessage({ tipo: 'etapa', texto }); } catch (e) {} };
 
     port.onMessage.addListener(async msg => {
       if (!msg || msg.tipo !== 'consultar') return;
-      if (sesion.windowId) {
+      if (sesion.tabId) {
         // Consulta nueva desde la misma pantalla: se descarta la anterior.
-        chrome.windows.remove(sesion.windowId).catch(() => {});
-        sesion.windowId = sesion.tabId = sesion.cid = null;
+        chrome.tabs.remove(sesion.tabId).catch(() => {});
+        sesion.tabId = sesion.cid = null;
       }
       try {
         const res = await consultar(msg, sesion, avisar);
@@ -286,8 +267,8 @@ export function iniciarConsultas() {
       } catch (err) {
         console.warn('[Infocivil consulta]', err);
         devolverFoco(sesion);
-        if (sesion.windowId) chrome.windows.remove(sesion.windowId).catch(() => {});
-        sesion.windowId = sesion.tabId = sesion.cid = null;
+        if (sesion.tabId) chrome.tabs.remove(sesion.tabId).catch(() => {});
+        sesion.tabId = sesion.cid = null;
         try { port.postMessage({ tipo: 'error', texto: err.message || String(err) }); } catch (e) {}
       }
     });
@@ -295,7 +276,7 @@ export function iniciarConsultas() {
     // La pantalla de inicio se cerró o navegó: la ventana del SCW ya no
     // hace falta.
     port.onDisconnect.addListener(() => {
-      if (sesion.windowId) chrome.windows.remove(sesion.windowId).catch(() => {});
+      if (sesion.tabId) chrome.tabs.remove(sesion.tabId).catch(() => {});
     });
   });
 }
