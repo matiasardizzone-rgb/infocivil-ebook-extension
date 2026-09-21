@@ -1010,11 +1010,21 @@ init();
     }
     sel.value = String(valorJurisdiccion);
     sel.dispatchEvent(new Event('change', { bubbles: true }));
-    await esperar(150);
+    // 150ms no alcanzaba: si el <select> dispara un postback AJAX propio
+    // (típico en formularios JSF — el value=camaraNumAni sugiere que puede
+    // recalcular algo dependiente de la jurisdicción), un humano tarda
+    // naturalmente más que eso en escribir número y año, dándole tiempo a
+    // terminar. Automatizado, 150ms no le dejaba margen: se probó contra
+    // un simulador que nunca tuvo ese comportamiento, así que nunca se
+    // hubiera detectado ahí.
+    await esperar(1200);
     inpNumero.value = String(numero);
     inpNumero.dispatchEvent(new Event('input', { bubbles: true }));
     inpAnio.value = String(anio);
     inpAnio.dispatchEvent(new Event('input', { bubbles: true }));
+    // Mismo margen antes de tocar "Consultar": si escribir el número o el
+    // año también dispara algo (menos probable, pero barato de cubrir).
+    await esperar(500);
     // El botón dispara jsf.util.chain(...) → mojarra.jsfcljs(...), un submit
     // real de formulario: se ejecuta su onclick en el mundo de la página
     // (mismo mecanismo que la paginación de históricas).
