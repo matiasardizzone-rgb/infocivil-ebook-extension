@@ -16,7 +16,7 @@
 //
 // import como módulo ES.
 
-import { PDFDocument, StandardFonts, rgb, PDFName, PDFHexString } from './pdf_lib.esm.js';
+import { PDFDocument, StandardFonts, rgb, PDFName, PDFHexString } from '../../vendor/pdf-lib.esm.js';
 
 const A4 = [595.28, 841.89];
 const MARGIN = 50;

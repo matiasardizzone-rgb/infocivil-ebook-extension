@@ -10,7 +10,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var pollingUnificado = null;
 
   btnBiblioteca.addEventListener('click', function () {
-    chrome.tabs.create({ url: chrome.runtime.getURL('biblioteca.html') });
+    chrome.tabs.create({ url: chrome.runtime.getURL('src/public/biblioteca.html') });
   });
 
   function fechaCorta(iso) {

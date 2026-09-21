@@ -1,5 +1,5 @@
-import * as db from './db.js';
-import { generarPdfUnificado } from './unificador.js';
+import * as db from '../lib/db.js';
+import { generarPdfUnificado } from '../lib/unificador.js';
 
 chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   if (!message) return;

@@ -3,10 +3,10 @@
 // extensión), así que puede importar db.js directamente sin pasar por
 // background.js — solo lo usamos para orquestar tabs del SCW (verificar/actualizar).
 
-import * as db from './db.js';
-import { verificarFirmaPDF } from './firma.js';
+import * as db from '../lib/db.js';
+import { verificarFirmaPDF } from '../lib/firma.js';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('pdf.worker.min.js');
+pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('vendor/pdf.worker.min.js');
 
 const FLAG_COLORS = [
   { id: 'rojo', hex: '#c0392b' }, { id: 'ambar', hex: '#c78a1e' }, { id: 'verde', hex: '#2f7d4f' },
