@@ -660,3 +660,10 @@ function crc32(d) {
 // ─────────────────────────── ARRANQUE ───────────────────────────
 cargarBiblioteca();
 mostrarBiblioteca();
+
+// biblioteca.html?abrir=<cid>: la pantalla de inicio llega acá con "Leer
+// como libro" después de guardar el expediente; se abre directo en el lector.
+(function () {
+  const cidAbrir = new URLSearchParams(location.search).get('abrir');
+  if (cidAbrir) abrirExpediente(cidAbrir);
+})();

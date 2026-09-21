@@ -9,6 +9,11 @@ document.addEventListener('DOMContentLoaded', function () {
   var pollingInterval = null;
   var pollingUnificado = null;
 
+  // Consulta sin pasar por el SCW: pantalla de inicio de la extensión.
+  document.getElementById('btnConsultar').addEventListener('click', function () {
+    chrome.tabs.create({ url: chrome.runtime.getURL('src/public/inicio.html') });
+  });
+
   btnBiblioteca.addEventListener('click', function () {
     chrome.tabs.create({ url: chrome.runtime.getURL('src/public/biblioteca.html') });
   });
@@ -75,7 +80,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (!url.includes('scw.pjn.gov.ar')) {
       bloquear();
-      estado.textContent = '⚠️ Navegá al Sistema de Consulta Web del PJN para usar esta extensión.';
+      estado.textContent = 'Usá 🔎 Consultar expediente, o abrí un expediente en el Sistema de Consulta Web.';
       return;
     }
 

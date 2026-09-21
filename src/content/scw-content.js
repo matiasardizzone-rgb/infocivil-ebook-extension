@@ -7,6 +7,32 @@
   window.__pjnListener = function (message, sender, sendResponse) {
     if (!message) return;
 
+    // ─── Consulta desde la pantalla de inicio de la extensión ───────────
+    // background/consulta.js maneja el flujo completo (esta instancia se
+    // destruye en cada navegación); acá solo se lee y se actúa sobre la
+    // página actual.
+    if (message.action === 'estadoPagina') {
+      sendResponse(estadoPaginaSCW());
+      return false;
+    }
+
+    if (message.action === 'completarFormularioBusqueda') {
+      (async () => {
+        try {
+          await completarFormularioBusquedaDOM(message.valorJurisdiccion, message.numero, message.anio);
+          sendResponse({ ok: true });
+        } catch (e) {
+          sendResponse({ ok: false, error: e.message || String(e) });
+        }
+      })();
+      return true;
+    }
+
+    if (message.action === 'tomarPrimerResultadoBusqueda') {
+      sendResponse(tomarPrimerResultadoBusquedaDOM());
+      return false;
+    }
+
     if (message.action === 'findPdfs') {
       (async () => {
         try {
@@ -945,6 +971,71 @@ init();
   function sanitizar(texto){return texto.replace(/[/\\?%*:|"<>]/g,' ').replace(/\s+/g,' ').trim();}
   function leftPad(n,w){let s=String(n);while(s.length<w)s='0'+s;return s;}
   function esperar(ms){return new Promise(r=>setTimeout(r,ms));}
+
+  // ─── Búsqueda en la Consulta Pública (home.seam) ──────────────────────────
+  // Selectores confirmados contra el HTML real de home.seam por el Portable
+  // (src/scw/buscarExpediente.js). El value del <select> es un código
+  // numérico (0=CSJ, 1=CIV, ...), no la sigla.
+  //
+  // Un cid= en la URL NO alcanza para dar por encontrado el expediente: el
+  // SCW agrega cid= a casi todas sus páginas, incluida home.seam. Igual que
+  // en el Portable, se confirma por contenido: "Carátula" en el texto o la
+  // tabla de actuaciones presente.
+  function estadoPaginaSCW() {
+    const texto = (document.body && document.body.innerText) || '';
+    const enHome = !!document.querySelector('input[name="formPublica:buscarPorNumeroButton"]');
+    const esExpediente = /expediente\.seam/.test(location.href) &&
+      (/car[aá]tula/i.test(texto) || !!document.querySelector('#expediente\\:action-table'));
+    const linksResultados = enHome || esExpediente ? 0 :
+      document.querySelectorAll('a[href*="expediente.seam?cid="]').length;
+    // Mensajes que el SCW muestra en la propia página (p. ej. "no se
+    // encontraron resultados"): PrimeFaces/RichFaces los pone en estos
+    // contenedores. Se devuelven tal cual para mostrarlos al operador.
+    const mensajes = Array.from(document.querySelectorAll('.ui-messages, .ui-message, .rf-msgs, .rf-msg, .alert, .error'))
+      .map(el => (el.innerText || '').trim()).filter(Boolean).join(' · ').slice(0, 300);
+    return {
+      ok: true, url: location.href, cid: obtenerCid(), enHome, esExpediente, linksResultados, mensajes,
+      caratula: esExpediente ? (obtenerCaratula() || '') : '',
+      textoInicio: texto.replace(/\s+/g, ' ').slice(0, 300),
+    };
+  }
+
+  async function completarFormularioBusquedaDOM(valorJurisdiccion, numero, anio) {
+    const sel = document.querySelector('select[name="formPublica:camaraNumAni"]');
+    const inpNumero = document.querySelector('input[name="formPublica:numero"]');
+    const inpAnio = document.querySelector('input[name="formPublica:anio"]');
+    const boton = document.querySelector('input[name="formPublica:buscarPorNumeroButton"]');
+    if (!sel || !inpNumero || !inpAnio || !boton) {
+      throw new Error('No se encontró el formulario de Consulta Pública (¿cambió el HTML de home.seam?).');
+    }
+    sel.value = String(valorJurisdiccion);
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    await esperar(150);
+    inpNumero.value = String(numero);
+    inpNumero.dispatchEvent(new Event('input', { bubbles: true }));
+    inpAnio.value = String(anio);
+    inpAnio.dispatchEvent(new Event('input', { bubbles: true }));
+    // El botón dispara jsf.util.chain(...) → mojarra.jsfcljs(...), un submit
+    // real de formulario: se ejecuta su onclick en el mundo de la página
+    // (mismo mecanismo que la paginación de históricas).
+    const onclick = boton.getAttribute('onclick') || '';
+    if (onclick) await ejecutarEnPaginaViaBg(onclick);
+    else dispararClickReal(boton);
+  }
+
+  // Página intermedia de resultados (sin confirmar si el SCW la muestra
+  // cuando hay un único resultado): se abre el primer expediente.
+  function tomarPrimerResultadoBusquedaDOM() {
+    const links = Array.from(document.querySelectorAll('a[href*="expediente.seam?cid="]'));
+    if (!links.length) return { ok: false, error: 'No hay resultados en esta página.' };
+    const link = links[0];
+    const href = link.getAttribute('href') || '';
+    const onclick = link.getAttribute('onclick') || '';
+    if (onclick) ejecutarEnPaginaViaBg(onclick);
+    else if (href && href !== '#') location.href = href.indexOf('http') === 0 ? href : 'https://scw.pjn.gov.ar' + href;
+    else dispararClickReal(link);
+    return { ok: true, multiplesResultados: links.length > 1 };
+  }
 
   // ─── ZIP builder ──────────────────────────────────────────────────────────
   function buildZip(files){

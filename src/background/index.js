@@ -1,10 +1,13 @@
 import * as db from '../lib/db.js';
 import { generarPdfUnificado } from '../lib/unificador.js';
 import { iniciarCanalExterno } from './externo.js';
+import { iniciarConsultas } from './consulta.js';
 import { PDFDocument } from '../../vendor/pdf-lib.esm.js';
 
 // Canal landing web → extensión (ping; más adelante buscarYAbrir).
 iniciarCanalExterno();
+// Consulta de expedientes desde la pantalla de inicio (src/public/inicio.html).
+iniciarConsultas();
 
 chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   if (!message) return;

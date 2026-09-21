@@ -57,10 +57,27 @@ sea estable entre visitas. Si al verificar un expediente sin cambios el
 aviso dice "al día", está confirmado. Si en la consola del service worker
 aparece "Ningún link público coincide con lo guardado", no lo es.
 
+- [x] Pantalla de inicio propia (🔎 Consultar expediente en el popup):
+      Jurisdicción / Número / Año → la extensión consulta el SCW en una
+      ventana minimizada (incluye históricas) y muestra el menú: leer como
+      libro, PDF unificado con índice, ZIP, Mis expedientes. La ventana
+      del SCW se cierra sola al salir de la pantalla.
+- [x] Visor sobre el SCW: tiempo límite por actuación y progreso por foja.
+
+**A confirmar contra el SCW real (primera consulta):** que la búsqueda
+llegue al expediente, y qué muestra el SCW cuando no lo encuentra (la
+pantalla reproduce el mensaje del SCW si lo hay).
+
+**Límite conocido:** en Chrome 109 el service worker se corta a los 5
+minutos aunque esté trabajando; una consulta normal tarda mucho menos, pero
+un expediente enorme podría no llegar. Desde Chrome 110 no pasa.
+
 Siguiente, en este orden:
 - [ ] Vinculados/incidentes: portar `vinculados.js` del Portable (versión
       con clic real y selectores verificados contra el SCW).
-- [ ] Lectura continua en la biblioteca.
+- [ ] Lectura continua dentro del lector (portar del paquete fusionado) y
+      agregarla a la pantalla del expediente.
+- [ ] Incidentes: abrirlos desde la pantalla de inicio (con vinculados).
 - [ ] `buscarYAbrir` desde la landing.
 - [ ] Integrar `lector.html` (transición realista) al lector de la biblioteca.
 - [ ] EPUB.
