@@ -44,9 +44,20 @@ Hecho:
 - [x] Identidad: manifest con clave fija, Chrome 109 mínimo, canal externo
       con `ping`, empaquetado para la Store, detección desde la landing.
 
+- [x] Novedades por id de actuación (link público), no por cantidad: el
+      orden distinto ya no cuenta como cambio, y se avisan las actuaciones
+      que el SCW dejó de mostrar. Si ningún link coincide con lo guardado
+      (URL con parámetros variables), cae a comparar por cantidad.
+- [x] "Actualizar biblioteca" ya no duplica el expediente.
+- [x] Banderitas ancladas a la actuación, no a la foja absoluta; las viejas
+      se migran solas (al abrir o antes de actualizar).
+
+**A confirmar contra el SCW real:** que el link público de cada actuación
+sea estable entre visitas. Si al verificar un expediente sin cambios el
+aviso dice "al día", está confirmado. Si en la consola del service worker
+aparece "Ningún link público coincide con lo guardado", no lo es.
+
 Siguiente, en este orden:
-- [ ] Novedades por id de actuación (no por cantidad) y banderitas ancladas
-      a la actuación (no a la página), con migración de lo ya guardado.
 - [ ] Vinculados/incidentes: portar `vinculados.js` del Portable (versión
       con clic real y selectores verificados contra el SCW).
 - [ ] Lectura continua en la biblioteca.

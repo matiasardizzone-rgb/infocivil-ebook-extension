@@ -49,8 +49,8 @@ async function cargarBiblioteca() {
         <span>📄 ${exp.cantidadActuaciones || 0} actuaciones</span>
         <span>💾 ${fechaCorta(exp.fechaDescarga)}</span>
       </div>
-      <span class="lib-badge ${exp.estado === 'nuevo' ? 'new' : 'ok'}" data-badge>
-        ${exp.estado === 'nuevo' ? '🔴 ' + exp.nuevasDetectadas + ' actuaciones nuevas' : '✓ Al día'}
+      <span class="lib-badge ${exp.estado === 'nuevo' || exp.eliminadasDetectadas > 0 ? 'new' : 'ok'}" data-badge>
+        ${textoEstado(exp.estado === 'nuevo' ? exp.nuevasDetectadas : 0, exp.eliminadasDetectadas || 0)}
       </span>
       <div class="lib-bar" style="display:none"><div class="lib-bar-fill" data-bar></div></div>
       <div class="lc-actions">
@@ -84,6 +84,15 @@ async function cargarBiblioteca() {
   });
 }
 
+// Texto del aviso de novedades de una tarjeta. Las eliminadas se informan
+// aparte: no son "nuevas", pero el operador tiene que enterarse.
+function textoEstado(nuevas, eliminadas) {
+  const partes = [];
+  if (nuevas > 0) partes.push('🔴 ' + nuevas + (nuevas === 1 ? ' actuación nueva' : ' actuaciones nuevas'));
+  if (eliminadas > 0) partes.push('⚠️ ' + eliminadas + (eliminadas === 1 ? ' ya no figura' : ' ya no figuran') + ' en el SCW');
+  return partes.length ? partes.join(' · ') : '✓ Al día';
+}
+
 function fechaCorta(iso) {
   if (!iso) return '?';
   try { return new Date(iso).toLocaleDateString('es-AR'); } catch (e) { return iso; }
@@ -103,8 +112,10 @@ async function verificarExpediente(exp, card) {
     exp.estado = r.cambio ? 'nuevo' : 'ok';
     exp.nuevasDetectadas = r.nuevasDetectadas || 0;
     card.classList.toggle('new', r.cambio);
+    exp.eliminadasDetectadas = r.eliminadasDetectadas || 0;
     badge.className = 'lib-badge ' + (r.cambio ? 'new' : 'ok');
-    badge.textContent = r.cambio ? '🔴 ' + r.nuevasDetectadas + ' actuaciones nuevas' : '✓ Al día';
+    badge.textContent = textoEstado(r.nuevasDetectadas || 0, r.eliminadasDetectadas || 0);
+    if (r.criterio === 'cantidad') badge.title = 'Comparado por cantidad de actuaciones (los links públicos no coincidieron).';
     btn.textContent = r.cambio ? 'Actualizar' : 'Verificar';
   } catch (err) {
     badge.className = 'lib-badge new';
@@ -216,7 +227,7 @@ async function abrirExpediente(cid) {
       for (let p = 1; p <= pdf.numPages; p++) pages.push({ di, p, doc, canvas: null, textLayer: null });
     }
 
-    flags = await db.obtenerMarcadores(cid);
+    flags = await cargarBanderitas(cid);
     cur = 0;
     firmasPorDoc = docsDb.map(() => null);
 
@@ -467,6 +478,45 @@ FLAG_COLORS.forEach(c => {
   });
   fpColors.appendChild(sw);
 });
+// ─── Anclaje de banderitas ───
+// En la base se guardan por { actuacionId, pagina } (foja dentro de la
+// actuación). Acá se les agrega .page (foja absoluta en ESTE armado del
+// libro) solo en memoria, para que el resto del lector siga igual.
+function lugarDeFoja(i) {
+  const pg = pages[i];
+  return { actuacionId: db.idDeDocumento(pg.doc), pagina: pg.p - 1 };
+}
+
+async function cargarBanderitas(cid) {
+  const guardadas = await db.obtenerMarcadores(cid);
+  const inicioPorId = new Map();   // actuacionId → { inicio, fojas }
+  pages.forEach((pg, i) => {
+    const id = db.idDeDocumento(pg.doc);
+    const r = inicioPorId.get(id);
+    if (!r) inicioPorId.set(id, { inicio: i, fojas: 1 });
+    else r.fojas++;
+  });
+
+  const resueltas = [];
+  for (const m of guardadas) {
+    if (m.actuacionId) {
+      const r = inicioPorId.get(m.actuacionId);
+      if (!r) continue; // la actuación no está en este armado: queda guardada, no se muestra
+      // Si la actuación se volvió a descargar con menos fojas, cae a la última.
+      resueltas.push({ ...m, page: r.inicio + Math.min(m.pagina || 0, r.fojas - 1) });
+    } else if (typeof m.page === 'number' && m.page < pages.length) {
+      // Formato viejo (foja absoluta): se migra al anclaje por actuación.
+      const nueva = await db.guardarMarcador({ cid, ...lugarDeFoja(m.page), label: m.label, color: m.color });
+      await db.eliminarMarcadorPorId(m.id);
+      resueltas.push({ ...nueva, page: m.page });
+    }
+  }
+  // Dos banderitas que resuelven a la misma foja: queda una.
+  const porFoja = new Map();
+  resueltas.forEach(f => porFoja.set(f.page, f));
+  return [...porFoja.values()].sort((a, b) => a.page - b.page);
+}
+
 function renderFlags() {
   const rail = document.getElementById('flagRail');
   rail.innerHTML = '';
@@ -499,16 +549,15 @@ document.addEventListener('click', e => {
 });
 document.getElementById('flagSave').addEventListener('click', async () => {
   const label = document.getElementById('flagLabel').value.trim();
-  const marcador = { cid: expActivo.cid, page: cur, label, color: selColor };
-  await db.guardarMarcador(marcador);
+  const guardado = await db.guardarMarcador({ cid: expActivo.cid, ...lugarDeFoja(cur), label, color: selColor });
   flags = flags.filter(f => f.page !== cur);
-  flags.push(marcador);
+  flags.push({ ...guardado, page: cur });
   flags.sort((a, b) => a.page - b.page);
   renderFlags();
   flagPop.classList.remove('open');
 });
 document.getElementById('flagRemove').addEventListener('click', async () => {
-  await db.eliminarMarcador(expActivo.cid, cur);
+  await db.eliminarMarcador(expActivo.cid, lugarDeFoja(cur));
   flags = flags.filter(f => f.page !== cur);
   renderFlags();
   flagPop.classList.remove('open');

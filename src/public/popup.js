@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', function () {
       cambiosBox.style.display = 'block';
       if (registro.estado === 'nuevo') {
         cambiosBox.innerHTML =
-          '📚 En biblioteca · 🔴 ' + registro.nuevasDetectadas + ' actuaciones nuevas ' +
+          '📚 En biblioteca · ' + textoNovedades(registro.nuevasDetectadas, registro.eliminadasDetectadas || 0) + ' ' +
           '(última verificación: ' + fechaCorta(registro.fechaVerificacion) + ')<br>' +
           '<button id="btnActualizarBib">💾 Actualizar biblioteca</button> ' +
           '<button id="btnVerificar" style="background:#fff;color:#8a6000;margin-top:6px">🔍 Verificar de nuevo</button>';
@@ -43,6 +43,14 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
+  // Resumen de novedades (nuevas y las que el SCW ya no muestra).
+  function textoNovedades(nuevas, eliminadas) {
+    var partes = [];
+    if (nuevas > 0) partes.push('🔴 ' + nuevas + (nuevas === 1 ? ' actuación nueva' : ' actuaciones nuevas'));
+    if (eliminadas > 0) partes.push('⚠️ ' + eliminadas + (eliminadas === 1 ? ' ya no figura' : ' ya no figuran') + ' en el SCW');
+    return partes.join(' · ');
+  }
+
   function mostrarResultadoVerificacion(r) {
     if (!r || !r.ok) {
       cambiosBox.style.display = 'block';
@@ -53,7 +61,7 @@ document.addEventListener('DOMContentLoaded', function () {
     cambiosBox.style.display = 'block';
     if (r.cambio) {
       cambiosBox.innerHTML =
-        '🔴 ' + r.nuevasDetectadas + ' actuaciones nuevas detectadas.<br>' +
+        textoNovedades(r.nuevasDetectadas, r.eliminadasDetectadas || 0) + '.<br>' +
         '<button id="btnActualizarBib">💾 Actualizar biblioteca</button>';
       document.getElementById('btnActualizarBib').addEventListener('click', function () { ejecutarAccion('guardarEnBiblioteca'); });
     } else {

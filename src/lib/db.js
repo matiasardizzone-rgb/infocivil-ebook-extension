@@ -67,6 +67,23 @@ function calcularHash(archivos) {
   return 'h' + (h >>> 0).toString(36) + '_n' + archivos.length;
 }
 
+// ─── Identidad de una actuación ─────────────────────────────────────────
+// El link público del SCW (sin download=true) identifica a cada actuación.
+// Es la misma normalización que usa scw-content.js al guardar (urlHiper) y
+// al armar el PDF unificado (urlPublica), así que los ids coinciden.
+function idActuacion(url) {
+  let u = url ? String(url) : '';
+  if (!u) return '';
+  if (u.indexOf('http') !== 0) u = 'https://scw.pjn.gov.ar' + u;
+  return u.replace(/[&?]download=true/g, '');
+}
+
+// Id de un documento ya guardado. Los guardados sin urlHiper (no debería
+// pasar, pero por las dudas) caen a su posición, que no sirve para diffs.
+function idDeDocumento(doc) {
+  return doc.urlHiper ? idActuacion(doc.urlHiper) : 'indice:' + doc.indice;
+}
+
 // ─── Expedientes ────────────────────────────────────────────────────────
 async function guardarExpediente(meta) {
   const db = await openDB();
@@ -140,10 +157,42 @@ function borrarPorIndiceCid(store, cid) {
 
 // ─── Documentos (PDFs como blob) ────────────────────────────────────────
 // doc: { cid, indice, titulo, fecha, tipo, esHistorica, extension, urlHiper, blob }
+// Si la actuación ya estaba guardada (mismo id), se reemplaza en vez de
+// agregar otra copia: sin esto, cada "Actualizar biblioteca" duplicaba
+// el expediente entero.
 async function guardarDocumento(doc) {
   const db = await openDB();
   const store = tx(db, STORE_DOCUMENTOS, 'readwrite').objectStore(STORE_DOCUMENTOS);
+  const idNuevo = idDeDocumento(doc);
+  if (idNuevo.indexOf('indice:') !== 0) {
+    const existentes = await reqToPromise(store.index('cid').getAll(IDBKeyRange.only(doc.cid)));
+    const previo = existentes.find(d => idDeDocumento(d) === idNuevo);
+    if (previo) doc.id = previo.id;
+  }
+  doc.eliminadaEnSCW = false;
   return reqToPromise(store.put(doc));
+}
+
+// Marca las actuaciones guardadas que el SCW ya no muestra. No se borran:
+// el operador las tenía y puede necesitarlas. Solo se marca si al menos
+// una coincide por id (ver la red de seguridad en verificarCambiosInterno).
+async function marcarEliminadasEnSCW(cid, idsActuales) {
+  const actuales = new Set(idsActuales);
+  const db = await openDB();
+  const store = tx(db, STORE_DOCUMENTOS, 'readwrite').objectStore(STORE_DOCUMENTOS);
+  const docs = await reqToPromise(store.index('cid').getAll(IDBKeyRange.only(cid)));
+  const conId = docs.filter(d => idDeDocumento(d).indexOf('indice:') !== 0);
+  if (!conId.some(d => actuales.has(idDeDocumento(d)))) return 0;
+  let marcadas = 0;
+  for (const d of conId) {
+    const eliminada = !actuales.has(idDeDocumento(d));
+    if (!!d.eliminadaEnSCW !== eliminada) {
+      d.eliminadaEnSCW = eliminada;
+      await reqToPromise(store.put(d));
+    }
+    if (eliminada) marcadas++;
+  }
+  return marcadas;
 }
 
 async function obtenerDocumentos(cid) {
@@ -163,16 +212,30 @@ async function contarDocumentos(cid) {
 }
 
 // ─── Marcadores libres (banderitas) ─────────────────────────────────────
-// marcador: { cid, page, label, color }
+// Anclados a la actuación, no a la foja absoluta del expediente:
+//   { cid, actuacionId, pagina, label, color }
+// pagina = foja dentro de esa actuación (0 = la primera). Si se agrega una
+// actuación en medio de la cronología, la banderita no se corre.
+// Formato viejo (antes de este cambio): { cid, page, label, color }, con
+// page = foja absoluta. biblioteca.js los migra al abrir el expediente.
+function mismoLugar(a, b) {
+  if (a.actuacionId || b.actuacionId) return a.actuacionId === b.actuacionId && a.pagina === b.pagina;
+  return a.page === b.page;
+}
+
 async function guardarMarcador(marcador) {
   const db = await openDB();
   const store = tx(db, STORE_MARCADORES, 'readwrite').objectStore(STORE_MARCADORES);
-  // Un marcador por foja: si ya existe uno para (cid, page), lo reemplaza.
+  // Un marcador por foja: si ya existe uno en el mismo lugar, lo reemplaza.
   const idx = store.index('cid');
   const existentes = await reqToPromise(idx.getAll(IDBKeyRange.only(marcador.cid)));
-  const previo = existentes.find(m => m.page === marcador.page);
-  if (previo) marcador.id = previo.id;
-  return reqToPromise(store.put(marcador));
+  const previo = existentes.find(m => mismoLugar(m, marcador));
+  const registro = marcador.actuacionId
+    ? { cid: marcador.cid, actuacionId: marcador.actuacionId, pagina: marcador.pagina, label: marcador.label, color: marcador.color }
+    : { cid: marcador.cid, page: marcador.page, label: marcador.label, color: marcador.color };
+  if (previo) registro.id = previo.id;
+  const id = await reqToPromise(store.put(registro));
+  return { ...registro, id };
 }
 
 async function obtenerMarcadores(cid) {
@@ -182,19 +245,26 @@ async function obtenerMarcadores(cid) {
   return reqToPromise(idx.getAll(IDBKeyRange.only(cid)));
 }
 
-async function eliminarMarcador(cid, page) {
+// lugar: { actuacionId, pagina } (formato nuevo) o { page } (formato viejo)
+async function eliminarMarcador(cid, lugar) {
   const db = await openDB();
   const store = tx(db, STORE_MARCADORES, 'readwrite').objectStore(STORE_MARCADORES);
   const idx = store.index('cid');
   const existentes = await reqToPromise(idx.getAll(IDBKeyRange.only(cid)));
-  const previo = existentes.find(m => m.page === page);
+  const previo = existentes.find(m => mismoLugar(m, lugar));
   if (previo) await reqToPromise(store.delete(previo.id));
 }
 
+async function eliminarMarcadorPorId(id) {
+  const db = await openDB();
+  const store = tx(db, STORE_MARCADORES, 'readwrite').objectStore(STORE_MARCADORES);
+  await reqToPromise(store.delete(id));
+}
+
 export {
-  calcularHash,
+  calcularHash, idActuacion, idDeDocumento,
   guardarExpediente, obtenerExpediente, listarExpedientes,
   actualizarEstadoExpediente, eliminarExpediente,
-  guardarDocumento, obtenerDocumentos, contarDocumentos,
-  guardarMarcador, obtenerMarcadores, eliminarMarcador,
+  guardarDocumento, obtenerDocumentos, contarDocumentos, marcarEliminadasEnSCW,
+  guardarMarcador, obtenerMarcadores, eliminarMarcador, eliminarMarcadorPorId,
 };

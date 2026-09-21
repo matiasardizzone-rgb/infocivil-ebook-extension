@@ -1,6 +1,7 @@
 import * as db from '../lib/db.js';
 import { generarPdfUnificado } from '../lib/unificador.js';
 import { iniciarCanalExterno } from './externo.js';
+import { PDFDocument } from '../../vendor/pdf-lib.esm.js';
 
 // Canal landing web → extensión (ping; más adelante buscarYAbrir).
 iniciarCanalExterno();
@@ -123,18 +124,27 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   if (message.action === 'bibliotecaIniciar') {
     // { cid, numero, folderName, caratula, archivos }
     const archivos = message.archivos || [];
-    db.guardarExpediente({
-      cid: message.cid,
-      numero: message.numero,
-      folderName: message.folderName,
-      caratula: message.caratula,
-      cantidadActuaciones: archivos.length,
-      cantidadFojas: archivos.length, // aproximado: 1 PDF ≈ 1 foja hasta que el visor cuente páginas reales
-      hash: db.calcularHash(archivos),
-      estado: 'descargando',
-      fechaDescarga: new Date().toISOString(),
-    }).then(reg => sendResponse({ ok: true, expediente: reg }))
-      .catch(err => sendResponse({ ok: false, error: err.message }));
+    (async () => {
+      try {
+        // Antes de que lleguen los documentos nuevos (ver migrarBanderitasViejas).
+        await migrarBanderitasViejas(message.cid).catch(err =>
+          console.warn('[Infocivil BG] No se pudieron migrar banderitas viejas:', err));
+        const reg = await db.guardarExpediente({
+          cid: message.cid,
+          numero: message.numero,
+          folderName: message.folderName,
+          caratula: message.caratula,
+          cantidadActuaciones: archivos.length,
+          cantidadFojas: archivos.length, // aproximado: 1 PDF ≈ 1 foja hasta que el visor cuente páginas reales
+          hash: db.calcularHash(archivos),
+          estado: 'descargando',
+          fechaDescarga: new Date().toISOString(),
+        });
+        sendResponse({ ok: true, expediente: reg });
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
     return true;
   }
 
@@ -167,15 +177,24 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   if (message.action === 'bibliotecaFinalizar') {
     // { cid, archivos }
     const archivos = message.archivos || [];
-    db.actualizarEstadoExpediente(message.cid, {
-      estado: 'ok',
-      nuevasDetectadas: 0,
-      cantidadActuaciones: archivos.length,
-      cantidadFojas: archivos.length,
-      hash: db.calcularHash(archivos),
-      fechaVerificacion: new Date().toISOString(),
-    }).then(reg => sendResponse({ ok: true, expediente: reg }))
-      .catch(err => sendResponse({ ok: false, error: err.message }));
+    (async () => {
+      try {
+        const ids = archivos.map(a => db.idActuacion(a.urlHiper || a.url)).filter(Boolean);
+        const eliminadas = await db.marcarEliminadasEnSCW(message.cid, ids);
+        const reg = await db.actualizarEstadoExpediente(message.cid, {
+          estado: 'ok',
+          nuevasDetectadas: 0,
+          eliminadasDetectadas: eliminadas,
+          cantidadActuaciones: archivos.length,
+          cantidadFojas: archivos.length,
+          hash: db.calcularHash(archivos),
+          fechaVerificacion: new Date().toISOString(),
+        });
+        sendResponse({ ok: true, expediente: reg });
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
     return true;
   }
 
@@ -451,18 +470,80 @@ function executeOnclick(onclickCode) {
 
 // ─── Auxiliares para orquestar biblioteca ↔ pestañas del SCW ───────────────
 
+// Compara lo recién escaneado en el SCW contra lo guardado, por id de
+// actuación (link público), no por cantidad: así "cambió el orden" o "se
+// leyó una histórica que antes faltaba" no se confunden con novedades, y
+// también se detectan actuaciones que el SCW ya no muestra.
+//
+// Red de seguridad: si hay actuaciones guardadas pero NINGUNA coincide por
+// id, lo más probable es que el link público no sea estable (algún
+// parámetro de sesión en la URL) y comparar por id marcaría todo como
+// nuevo. En ese caso se vuelve a la comparación por cantidad y se informa
+// criterio:'cantidad' para poder detectarlo al probar contra el SCW real.
+// Banderitas en formato viejo ({ page } = foja absoluta) se anclan a su
+// actuación ANTES de que una actualización cambie el armado del libro:
+// después ya no hay forma de saber a qué foja se referían. Reconstruye el
+// armado tal como lo arma biblioteca.js (documentos por índice, todas sus
+// fojas en orden). Solo trabaja si hay banderitas viejas; es por única vez.
+async function migrarBanderitasViejas(cid) {
+  const viejas = (await db.obtenerMarcadores(cid)).filter(m => !m.actuacionId && typeof m.page === 'number');
+  if (!viejas.length) return 0;
+  const docs = await db.obtenerDocumentos(cid);
+  const tramos = []; // { desde, fojas, doc }
+  let desde = 0;
+  for (const doc of docs) {
+    let fojas = 1;
+    try {
+      const pdf = await PDFDocument.load(await doc.blob.arrayBuffer(), { ignoreEncryption: true, updateMetadata: false });
+      fojas = pdf.getPageCount();
+    } catch (e) { /* PDF ilegible: el lector tampoco lo muestra bien; cuenta como 1 */ }
+    tramos.push({ desde, fojas, doc });
+    desde += fojas;
+  }
+  let migradas = 0;
+  for (const m of viejas) {
+    const t = tramos.find(t => m.page >= t.desde && m.page < t.desde + t.fojas);
+    if (!t) continue; // foja fuera de rango: se deja como está
+    await db.guardarMarcador({ cid, actuacionId: db.idDeDocumento(t.doc), pagina: m.page - t.desde, label: m.label, color: m.color });
+    await db.eliminarMarcadorPorId(m.id);
+    migradas++;
+  }
+  return migradas;
+}
+
 async function verificarCambiosInterno(cid, archivos) {
   const existente = await db.obtenerExpediente(cid);
   if (!existente) return { ok: true, noGuardado: true };
-  const hashNuevo = db.calcularHash(archivos);
-  const cambio = existente.hash !== hashNuevo;
-  const nuevasDetectadas = cambio ? Math.max(0, archivos.length - existente.cantidadActuaciones) : 0;
+
+  const docs = await db.obtenerDocumentos(cid);
+  const guardados = new Set(docs.map(db.idDeDocumento).filter(id => id.indexOf('indice:') !== 0));
+  const actuales = new Set(archivos.map(a => db.idActuacion(a.urlHiper || a.url)).filter(Boolean));
+
+  let criterio = 'id';
+  let nuevasDetectadas = 0, eliminadasDetectadas = 0, cambio;
+  const hayCoincidencias = [...actuales].some(id => guardados.has(id));
+
+  if (guardados.size && actuales.size && hayCoincidencias) {
+    nuevasDetectadas = [...actuales].filter(id => !guardados.has(id)).length;
+    eliminadasDetectadas = [...guardados].filter(id => !actuales.has(id)).length;
+    cambio = nuevasDetectadas > 0 || eliminadasDetectadas > 0;
+  } else {
+    criterio = 'cantidad';
+    if (guardados.size && actuales.size) {
+      console.warn('[Infocivil BG] Ningún link público coincide con lo guardado (cid=' + cid +
+        '): se compara por cantidad. Revisar si la URL del visor trae parámetros variables.');
+    }
+    cambio = existente.hash !== db.calcularHash(archivos);
+    nuevasDetectadas = cambio ? Math.max(0, archivos.length - existente.cantidadActuaciones) : 0;
+  }
+
   const actualizado = await db.actualizarEstadoExpediente(cid, {
     estado: cambio ? 'nuevo' : 'ok',
     nuevasDetectadas,
+    eliminadasDetectadas,
     fechaVerificacion: new Date().toISOString(),
   });
-  return { ok: true, cambio, nuevasDetectadas, expediente: actualizado };
+  return { ok: true, cambio, nuevasDetectadas, eliminadasDetectadas, criterio, expediente: actualizado };
 }
 
 // Busca una pestaña ya abierta en ese expediente; si no hay, crea una nueva
