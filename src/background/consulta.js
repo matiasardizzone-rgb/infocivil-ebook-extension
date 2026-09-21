@@ -36,26 +36,38 @@ function pedir(tabId, mensaje) {
   });
 }
 
-// El SCW puede navegar solo justo después de que una página termina de
-// cargar (por ejemplo, para agregar un parámetro de sesión a home.seam) —
-// visto contra el sitio real: 'complete' llega, se manda el siguiente
-// mensaje, y para entonces la página ya está navegando de nuevo y destruyó
-// el content script anterior, así que ese mensaje se pierde. pedir() por sí
-// solo no lo nota (una sola sendMessage), así que estos mensajes clave se
-// reintentan esperando a que la pestaña vuelva a estar 'complete' entre
-// intento e intento.
-async function pedirConReintento(tabId, mensaje, intentos = 4) {
-  for (let i = 0; i < intentos; i++) {
+// El SCW parece dar varios saltos de navegación seguidos al abrir
+// home.seam por primera vez (visto contra el sitio real: el formulario no
+// estaba, pese a que la pestaña ya reportaba 'complete' y el content
+// script respondió). "complete" del navegador no alcanza como señal de
+// que la página está lista — hay que confirmarlo por CONTENIDO
+// (condicion sobre el resultado de 'estadoPagina') antes de mandar el
+// mensaje real, y si aun así no llega respuesta (perdida por una
+// renavegación en el instante entre medio), reintentar.
+async function pedirCuandoListo(tabId, condicion, mensaje, { timeoutMs = 20000, intentos = 6 } = {}) {
+  const inicio = Date.now();
+  let ultimoEstado = null;
+  for (let i = 0; i < intentos && Date.now() - inicio < timeoutMs; i++) {
     const tab = await chrome.tabs.get(tabId).catch(() => null);
     if (!tab) throw new Error('Se cerró la ventana del SCW.');
     if (tab.status === 'complete') {
-      const r = await pedir(tabId, mensaje);
-      if (r) return r;
+      const estado = await pedir(tabId, { action: 'estadoPagina' });
+      if (estado && condicion(estado)) {
+        ultimoEstado = estado;
+        const r = await pedir(tabId, mensaje);
+        if (r) return r;
+        console.warn('[Infocivil consulta] Página lista pero sin respuesta a "' + mensaje.action +
+          '" (intento ' + (i + 1) + '/' + intentos + ', url=' + tab.url + ') — probablemente renavegó justo entonces. Reintentando…');
+      } else if (estado) {
+        ultimoEstado = estado;
+        console.warn('[Infocivil consulta] Página aún no lista para "' + mensaje.action + '" (intento ' +
+          (i + 1) + '/' + intentos + '): url=' + tab.url + ' enHome=' + estado.enHome +
+          ' esExpediente=' + estado.esExpediente + ' linksResultados=' + estado.linksResultados);
+      }
     }
-    console.warn('[Infocivil consulta] Sin respuesta a "' + mensaje.action + '" (intento ' +
-      (i + 1) + '/' + intentos + ', status=' + tab.status + ', url=' + tab.url + ') — reintentando…');
-    await esperar(400 + i * 500);
+    await esperar(400 + i * 300);
   }
+  if (ultimoEstado) console.warn('[Infocivil consulta] Último estado visto para "' + mensaje.action + '":', ultimoEstado);
   return null;
 }
 
@@ -115,8 +127,9 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
   let estado;
   try {
     avisar('Buscando ' + nombre + '…');
-    const r = await pedirConReintento(tabId, { action: 'completarFormularioBusqueda', valorJurisdiccion, numero, anio });
-    if (!r || !r.ok) throw new Error((r && r.error) || 'No se pudo completar la Consulta Pública (la página del SCW no respondió a tiempo).');
+    const r = await pedirCuandoListo(tabId, e => e.enHome,
+      { action: 'completarFormularioBusqueda', valorJurisdiccion, numero, anio });
+    if (!r || !r.ok) throw new Error((r && r.error) || 'No se pudo completar la Consulta Pública (la página del SCW no terminó de asentarse).');
     const inicio = Date.now();
     let resultadosTomados = false;
     while (true) {
@@ -131,7 +144,7 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
         resultadosTomados = true;
         navego = false;
         avisar('Abriendo el expediente…');
-        await pedir(tabId, { action: 'tomarPrimerResultadoBusqueda' });
+        await pedirCuandoListo(tabId, e => e.linksResultados > 0, { action: 'tomarPrimerResultadoBusqueda' }, { timeoutMs: 8000 });
         continue;
       }
       if (estado.enHome) {
@@ -164,8 +177,8 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
   if (vuelta.vencido) throw new Error('No se pudo volver al expediente después de leer las históricas.');
 
   avisar('Leyendo actuaciones…');
-  const act = await pedirConReintento(tabId, { action: 'obtenerActuaciones' });
-  if (!act || !act.ok) throw new Error((act && act.error) || 'No se pudieron leer las actuaciones (la página no respondió a tiempo).');
+  const act = await pedirCuandoListo(tabId, e => e.esExpediente, { action: 'obtenerActuaciones' }, { timeoutMs: 25000 });
+  if (!act || !act.ok) throw new Error((act && act.error) || 'No se pudieron leer las actuaciones (la página del expediente no terminó de asentarse).');
 
   return {
     cid, tabId, aviso,
