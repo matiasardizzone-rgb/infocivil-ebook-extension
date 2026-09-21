@@ -143,7 +143,10 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   btnLibro.addEventListener('click', function () {
-    ejecutarAccion('abrirVisor');
+    // Guarda en biblioteca (mismo camino confiable que 'Guardar en
+    // biblioteca' y el PDF unificado: sobre la pestaña ya abierta, sin
+    // automatizar nada del SCW) y abre el lector real de páginas.
+    ejecutarAccion('guardarEnBiblioteca', true);
   });
 
   btnDescargar.addEventListener('click', function () {
@@ -240,7 +243,7 @@ document.addEventListener('DOMContentLoaded', function () {
     chrome.storage.local.remove(['unificadoProgreso']);
   }
 
-  function ejecutarAccion(accion) {
+  function ejecutarAccion(accion, abrirLibroAlTerminar) {
     bloquear();
     estado.textContent = accion === 'verificarCambios'
       ? '🔍 Comparando con la biblioteca...'
@@ -264,19 +267,19 @@ document.addEventListener('DOMContentLoaded', function () {
           }
         });
 
-        iniciarPollingFindPdfs(tabIdOriginal, accion, cid);
+        iniciarPollingFindPdfs(tabIdOriginal, accion, cid, abrirLibroAlTerminar);
       });
     });
   }
 
-  function iniciarPollingFindPdfs(tabIdOriginal, accion, cid) {
+  function iniciarPollingFindPdfs(tabIdOriginal, accion, cid, abrirLibroAlTerminar) {
     var intentos = 90;
     var interval = setInterval(function() {
       chrome.storage.local.get(['pjnFindPdfsResult'], function(data) {
         if (data.pjnFindPdfsResult) {
           clearInterval(interval);
           chrome.storage.local.remove(['pjnFindPdfsResult', 'pjnFindPdfsPendiente']);
-          procesarResultadoFindPdfs(data.pjnFindPdfsResult, tabIdOriginal, accion, cid);
+          procesarResultadoFindPdfs(data.pjnFindPdfsResult, tabIdOriginal, accion, cid, abrirLibroAlTerminar);
         } else if (--intentos <= 0) {
           clearInterval(interval);
           chrome.storage.local.remove(['pjnFindPdfsPendiente']);
@@ -287,7 +290,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }, 1000);
   }
 
-  function procesarResultadoFindPdfs(resp, tabIdOriginal, accion, cid) {
+  function procesarResultadoFindPdfs(resp, tabIdOriginal, accion, cid, abrirLibroAlTerminar) {
     if (!resp || !resp.ok) {
       mostrarError((resp && resp.error) || 'Error al detectar.');
       desbloquear();
@@ -337,10 +340,10 @@ document.addEventListener('DOMContentLoaded', function () {
       startIndex: 1
     });
 
-    iniciarPollingProgreso();
+    iniciarPollingProgreso(abrirLibroAlTerminar && cid);
   }
 
-  function iniciarPollingProgreso() {
+  function iniciarPollingProgreso(cidParaAbrirLibro) {
     if (pollingInterval) return;
     pollingInterval = setInterval(function () {
       chrome.storage.local.get(['descargaProgreso'], function (data) {
@@ -352,6 +355,10 @@ document.addEventListener('DOMContentLoaded', function () {
           pollingInterval = null;
           desbloquear();
           chrome.storage.local.remove(['descargaProgreso']);
+          if (cidParaAbrirLibro && !p.errores) {
+            estado.textContent = '📖 Abriendo el libro...';
+            chrome.tabs.create({ url: chrome.runtime.getURL('src/public/biblioteca.html?abrir=' + encodeURIComponent(cidParaAbrirLibro)) });
+          }
         }
       });
     }, 800);
