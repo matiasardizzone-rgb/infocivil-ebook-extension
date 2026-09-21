@@ -57,24 +57,42 @@ async function pedirCuandoListo(tabId, condicion, mensaje, { timeoutMs = 30000 }
   let ultimoEstado = null, intento = 0;
   while (Date.now() - inicio < timeoutMs) {
     intento++;
+    const seg = () => Math.round((Date.now() - inicio) / 1000);
     const tab = await chrome.tabs.get(tabId).catch(() => null);
     if (!tab) throw new Error('Se cerró la ventana del SCW.');
-    if (tab.status === 'complete') {
-      const estado = await pedir(tabId, { action: 'estadoPagina' });
-      if (estado && condicion(estado)) {
-        ultimoEstado = estado;
-        const r = await pedir(tabId, mensaje);
-        if (r) return r;
-        console.warn('[Infocivil consulta] Página lista pero sin respuesta a "' + mensaje.action +
-          '" (intento ' + intento + ', ' + Math.round((Date.now() - inicio) / 1000) + 's, url=' + tab.url +
-          ') — probablemente renavegó justo entonces. Reintentando…');
-      } else if (estado) {
-        ultimoEstado = estado;
-        // Uno cada pocos intentos alcanza: si tarda, no hace falta un log por cada poll de 400ms.
-        if (intento % 5 === 0) console.warn('[Infocivil consulta] Página aún no lista para "' + mensaje.action + '" (' +
-          Math.round((Date.now() - inicio) / 1000) + 's): url=' + tab.url + ' enHome=' + estado.enHome +
-          ' esExpediente=' + estado.esExpediente + ' linksResultados=' + estado.linksResultados);
-      }
+
+    if (tab.status !== 'complete') {
+      // Antes esto quedaba en silencio: si la pestaña nunca llega a
+      // 'complete' (por ejemplo, atascada en una redirección), el bucle
+      // entero pasaba sin dejar un solo rastro en la consola.
+      if (intento % 3 === 0) console.warn('[Infocivil consulta] Pestaña sin terminar de cargar para "' +
+        mensaje.action + '" (' + seg() + 's, intento ' + intento + '): status=' + tab.status + ' url=' + tab.url);
+      await esperar(Math.min(400 + intento * 200, 2000));
+      continue;
+    }
+
+    const estado = await pedir(tabId, { action: 'estadoPagina' });
+    if (!estado) {
+      // Tampoco esto: 'complete' pero el content script no respondió
+      // nada (no se inyectó, o se está reinyectando justo ahora).
+      if (intento % 3 === 0) console.warn('[Infocivil consulta] Sin respuesta del content script para "' +
+        mensaje.action + '" (' + seg() + 's, intento ' + intento + '): url=' + tab.url);
+      await esperar(Math.min(400 + intento * 200, 2000));
+      continue;
+    }
+
+    ultimoEstado = estado;
+    if (condicion(estado)) {
+      const r = await pedir(tabId, mensaje);
+      if (r) return r;
+      console.warn('[Infocivil consulta] Página lista pero sin respuesta a "' + mensaje.action +
+        '" (intento ' + intento + ', ' + seg() + 's, url=' + tab.url +
+        ') — probablemente renavegó justo entonces. Reintentando…');
+    } else if (intento % 3 === 0) {
+      console.warn('[Infocivil consulta] Página aún no lista para "' + mensaje.action + '" (' + seg() +
+        's, intento ' + intento + '): url=' + tab.url + ' enHome=' + estado.enHome +
+        ' esExpediente=' + estado.esExpediente + ' linksResultados=' + estado.linksResultados +
+        ' mensajes=' + JSON.stringify(estado.mensajes));
     }
     await esperar(Math.min(400 + intento * 200, 2000));
   }
@@ -84,10 +102,11 @@ async function pedirCuandoListo(tabId, condicion, mensaje, { timeoutMs = 30000 }
 }
 
 // Espera hasta que el estado de la página cumpla la condición.
-async function esperarEstado(tabId, condicion, timeoutMs) {
+async function esperarEstado(tabId, condicion, timeoutMs, etiqueta = '') {
   const inicio = Date.now();
-  let ultimo = null;
+  let ultimo = null, intento = 0;
   while (Date.now() - inicio < timeoutMs) {
+    intento++;
     const tab = await chrome.tabs.get(tabId).catch(() => null);
     if (!tab) throw new Error('Se cerró la ventana del SCW.');
     if (tab.status === 'complete') {
@@ -95,7 +114,15 @@ async function esperarEstado(tabId, condicion, timeoutMs) {
       if (estado) {
         ultimo = estado;
         if (condicion(estado)) return estado;
+        if (etiqueta && intento % 3 === 0) console.warn('[Infocivil consulta] ' + etiqueta + ': condición aún no cumplida (' +
+          Math.round((Date.now() - inicio) / 1000) + 's): url=' + tab.url + ' ' + JSON.stringify(estado));
+      } else if (etiqueta && intento % 3 === 0) {
+        console.warn('[Infocivil consulta] ' + etiqueta + ': sin respuesta del content script (' +
+          Math.round((Date.now() - inicio) / 1000) + 's): url=' + tab.url);
       }
+    } else if (etiqueta && intento % 3 === 0) {
+      console.warn('[Infocivil consulta] ' + etiqueta + ': pestaña sin terminar de cargar (' +
+        Math.round((Date.now() - inicio) / 1000) + 's): status=' + tab.status + ' url=' + tab.url);
     }
     await esperar(500);
   }
@@ -155,7 +182,7 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
   const tabId = ventana.tabs[0].id;
   sesion.tabId = tabId;
 
-  const home = await esperarEstado(tabId, e => e.enHome, 30000);
+  const home = await esperarEstado(tabId, e => e.enHome, 30000, 'esperando home.seam');
   if (home.vencido) throw new Error('El SCW no respondió (no cargó la Consulta Pública).');
 
   // Tres salidas posibles: el expediente, una página de resultados, o de
@@ -180,7 +207,7 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
         throw new Error('El SCW tardó demasiado en responder la búsqueda de ' + nombre + '.');
       }
       estado = await esperarEstado(tabId, e =>
-        (navego && (e.esExpediente || e.linksResultados > 0 || e.enHome)) || (e.enHome && !!e.mensajes), 5000);
+        (navego && (e.esExpediente || e.linksResultados > 0 || e.enHome)) || (e.enHome && !!e.mensajes), 5000, 'esperando resultado de la búsqueda');
       if (estado.vencido) continue;
       if (estado.esExpediente && estado.cid) break;
       if (estado.linksResultados > 0 && !resultadosTomados) {
@@ -216,7 +243,7 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
   if (!hist.ok) console.warn('[Infocivil consulta] Históricas no leídas:', hist.error);
 
   await chrome.tabs.update(tabId, { url: urlExpediente(cid) });
-  const vuelta = await esperarEstado(tabId, e => e.esExpediente, 30000);
+  const vuelta = await esperarEstado(tabId, e => e.esExpediente, 30000, 'volviendo al expediente tras históricas');
   if (vuelta.vencido) throw new Error('No se pudo volver al expediente después de leer las históricas.');
 
   avisar('Leyendo actuaciones…');
