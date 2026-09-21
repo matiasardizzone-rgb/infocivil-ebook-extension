@@ -111,7 +111,22 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
   const nombre = `${sigla} ${numero}/${anio}`;
 
   avisar('Conectando con el Sistema de Consulta Web…');
-  const ventana = await chrome.windows.create({ url: URL_HOME, state: 'minimized', focused: false });
+  // Minimizada, NO: Chrome frena los timers de JavaScript en pestañas
+  // minimizadas/ocultas (documento en background), y el SCW hace una
+  // serie de redirecciones propias al abrir home.seam por primera vez que
+  // dependen de eso — con la ventana minimizada podían no terminar de
+  // asentarse nunca dentro del margen de espera.
+  // Tampoco fuera de pantalla del todo: Chrome lo rechaza ("Bounds must
+  // be at least 50% within visible screen space"), a propósito, para
+  // evitar justo este truco. La alternativa que queda es una ventana
+  // chica en una esquina, dentro de la pantalla: para Chrome sigue
+  // "visible" (sus timers corren normal) y visualmente es apenas un
+  // recuadro chico en la esquina mientras dura la consulta, no una
+  // ventana de tamaño normal tapando el trabajo del operador.
+  const ventana = await chrome.windows.create({
+    url: URL_HOME, type: 'popup', state: 'normal', focused: false,
+    left: 0, top: 0, width: 220, height: 160,
+  });
   sesion.windowId = ventana.id;
   const tabId = ventana.tabs[0].id;
   sesion.tabId = tabId;
