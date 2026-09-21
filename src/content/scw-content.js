@@ -685,21 +685,36 @@ async function init(){
   const nHist=PDF_LIST.filter(f=>f.esHistorica).length;
   let totalPages=0;
 
+  // Tiempos límite: sin ellos, una actuación cuya descarga o render nunca
+  // termina deja el cartel trabado para siempre. Al vencer, esa actuación
+  // se muestra con el visor nativo de Chrome (mismo camino que un error).
+  const LIMITE_DOCUMENTO_MS=90000, LIMITE_FOJA_MS=45000;
+  function conLimite(promesa,ms,que){
+    return new Promise(function(ok,mal){
+      const t=setTimeout(function(){mal(new Error('Tiempo agotado: '+que));},ms);
+      promesa.then(function(v){clearTimeout(t);ok(v);},function(e){clearTimeout(t);mal(e);});
+    });
+  }
+
   for(let di=0;di<PDF_LIST.length;di++){
     const f=PDF_LIST[di];
     const pct=Math.round((di/PDF_LIST.length)*100);
+    const progreso=(di+1)+' de '+PDF_LIST.length+' documentos';
     loadTitle.textContent='Procesando actuaciones...';
     loadMsg.textContent=f.name.replace(/\.pdf$/i,'').replace(/^\d+ - /,'');
     loadFill.style.width=pct+'%';
-    loadPct.textContent=pct+'%  ('+(di+1)+' de '+PDF_LIST.length+' documentos)';
+    loadPct.textContent=pct+'%  ('+progreso+')';
     const start=pages.length;
+    let tarea=null;
     try{
-      const pdf=await pdfjsLib.getDocument({
+      tarea=pdfjsLib.getDocument({
         url:f.url,isEvalSupported:false,useSystemFonts:true,disableFontFace:false
-      }).promise;
+      });
+      const pdf=await conLimite(tarea.promise,LIMITE_DOCUMENTO_MS,'descarga del documento '+(di+1));
       for(let p=1;p<=pdf.numPages;p++){
-        const pg=await pdf.getPage(p);
-        const {canvas,textLayer}=await renderPg(pg,zoom);
+        if(pdf.numPages>1)loadPct.textContent=pct+'%  ('+progreso+' · foja '+p+' de '+pdf.numPages+')';
+        const pg=await conLimite(pdf.getPage(p),LIMITE_FOJA_MS,'foja '+p);
+        const {canvas,textLayer}=await conLimite(renderPg(pg,zoom),LIMITE_FOJA_MS,'foja '+p);
         const wrap=document.createElement('div');
         wrap.className='pdf-page'+(f.esHistorica?' hist-page':'');
         const lbl=document.createElement('div');lbl.className='page-label';
@@ -709,9 +724,16 @@ async function init(){
         pages.push({di,p,canvas,wrap,pg});totalPages++;
       }
     }catch(e){
+      console.warn('[Infocivil visor] Documento '+(di+1)+' sin render propio:',e&&e.message);
+      // No se cancela la descarga colgada (destroy() deja errores internos de
+      // PDF.js en la consola); se abandona y se sigue con la próxima.
+      if(tarea)tarea.promise.catch(function(){});
+      // Si el documento ya había dibujado algunas fojas, se descartan para
+      // no mostrarlo a medias: va entero al visor nativo.
+      while(pages.length>start){const q=pages.pop();if(q.wrap&&q.wrap.parentNode)q.wrap.parentNode.removeChild(q.wrap);totalPages--;}
       const wrap=document.createElement('div');
       wrap.className='pdf-page'+(f.esHistorica?' hist-page':'');
-      wrap.innerHTML='<iframe src="'+f.urlHiper+'" style="width:100%;height:850px;border:none;display:block;"></iframe>';
+      wrap.innerHTML='<iframe src="'+(f.urlHiper||f.url)+'" style="width:100%;height:850px;border:none;display:block;"></iframe>';
       viewer.appendChild(wrap);
       pages.push({di,p:1,canvas:null,wrap,pg:null});totalPages++;
     }
