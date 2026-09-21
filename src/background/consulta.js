@@ -23,6 +23,14 @@ const urlHistoricas = cid => SCW + '/actuacionesHistoricas.seam?cid=' + cid;
 
 const esperar = ms => new Promise(r => setTimeout(r, ms));
 
+// La ventana de consulta se enfoca (ver más abajo, en consultar()); esto le
+// devuelve el foco al operador apenas termina de buscar, sin depender de
+// que la ventana de consulta se cierre (sigue abierta, sin foco, por si
+// hace falta para las descargas).
+function devolverFoco(sesion) {
+  if (sesion.ventanaPrevia) chrome.windows.update(sesion.ventanaPrevia, { focused: true }).catch(() => {});
+}
+
 // Mensaje al content script de la pestaña; null si todavía no hay uno
 // escuchando (la página está navegando o cargando).
 function pedir(tabId, mensaje) {
@@ -109,6 +117,7 @@ async function esperarStorage(clave, timeoutMs) {
 
 async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, sesion, avisar) {
   const nombre = `${sigla} ${numero}/${anio}`;
+  const previa = await chrome.windows.getLastFocused({ populate: false }).catch(() => null);
 
   avisar('Conectando con el Sistema de Consulta Web…');
   // Minimizada, NO: Chrome frena los timers de JavaScript en pestañas
@@ -118,16 +127,24 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
   // asentarse nunca dentro del margen de espera.
   // Tampoco fuera de pantalla del todo: Chrome lo rechaza ("Bounds must
   // be at least 50% within visible screen space"), a propósito, para
-  // evitar justo este truco. La alternativa que queda es una ventana
-  // chica en una esquina, dentro de la pantalla: para Chrome sigue
-  // "visible" (sus timers corren normal) y visualmente es apenas un
-  // recuadro chico en la esquina mientras dura la consulta, no una
-  // ventana de tamaño normal tapando el trabajo del operador.
+  // evitar justo este truco.
+  // Una ventana chica sin foco en una esquina (v0.3.0) tampoco alcanzó:
+  // lo más probable es que Windows la haya dejado tapada por completo
+  // detrás del navegador principal del operador — y una ventana tapada
+  // del todo también cuenta como oculta para Chrome, mismo problema que
+  // la minimizada. alwaysOnTop (probado a continuación) no es un
+  // parámetro válido para ventanas de extensión — API distinta.
+  // Queda una sola forma confiable de que Chrome nunca la oculte: darle
+  // foco (igual que si el operador la manejara a mano, o que un
+  // Playwright normal). Se guarda qué ventana estaba activa antes para
+  // devolverle el foco apenas termina — la interrupción queda acotada a
+  // lo que dura la consulta.
   const ventana = await chrome.windows.create({
-    url: URL_HOME, type: 'popup', state: 'normal', focused: false,
+    url: URL_HOME, type: 'popup', state: 'normal', focused: true,
     left: 0, top: 0, width: 220, height: 160,
   });
   sesion.windowId = ventana.id;
+  sesion.ventanaPrevia = previa && previa.id !== ventana.id ? previa.id : null;
   const tabId = ventana.tabs[0].id;
   sesion.tabId = tabId;
 
@@ -199,6 +216,10 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
   const act = await pedirCuandoListo(tabId, e => e.esExpediente, { action: 'obtenerActuaciones' }, { timeoutMs: 25000 });
   if (!act || !act.ok) throw new Error((act && act.error) || 'No se pudieron leer las actuaciones (la página del expediente no terminó de asentarse).');
 
+  // Encontrado: la ventana ya no necesita foco (las descargas que vengan
+  // después usan fetch() en la página, que no depende de la visibilidad).
+  devolverFoco(sesion);
+
   return {
     cid, tabId, aviso,
     nombre,
@@ -230,6 +251,7 @@ export function iniciarConsultas() {
         port.postMessage({ tipo: 'listo', ...res });
       } catch (err) {
         console.warn('[Infocivil consulta]', err);
+        devolverFoco(sesion);
         if (sesion.windowId) chrome.windows.remove(sesion.windowId).catch(() => {});
         sesion.windowId = sesion.tabId = sesion.cid = null;
         try { port.postMessage({ tipo: 'error', texto: err.message || String(err) }); } catch (e) {}
