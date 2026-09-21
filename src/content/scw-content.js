@@ -984,8 +984,15 @@ init();
   function estadoPaginaSCW() {
     const texto = (document.body && document.body.innerText) || '';
     const enHome = !!document.querySelector('input[name="formPublica:buscarPorNumeroButton"]');
-    const esExpediente = /expediente\.seam/.test(location.href) &&
-      (/car[aá]tula/i.test(texto) || !!document.querySelector('#expediente\\:action-table'));
+    // Antes exigía además "Carátula" en el texto o la tabla de
+    // actuaciones presente — visto contra el sitio real: el SCW navega
+    // bien al expediente tecleado, pero esa condición extra se queda en
+    // false (el texto o la tabla tardan en aparecer, o no calzan exacto)
+    // y la extensión espera algo que ya pasó, sin límite. La URL de
+    // expediente.seam con un cid numérico alcanza — ese patrón no se da
+    // en ningún otro lugar del sitio (a diferencia de home.seam, que sí
+    // puede traer un cid propio de sesión).
+    const esExpediente = /\/expediente\.seam$/.test(location.pathname) && !!obtenerCid();
     const linksResultados = enHome || esExpediente ? 0 :
       document.querySelectorAll('a[href*="expediente.seam?cid="]').length;
     // Mensajes que el SCW muestra en la propia página (p. ej. "no se
