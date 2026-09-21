@@ -36,6 +36,29 @@ function pedir(tabId, mensaje) {
   });
 }
 
+// El SCW puede navegar solo justo después de que una página termina de
+// cargar (por ejemplo, para agregar un parámetro de sesión a home.seam) —
+// visto contra el sitio real: 'complete' llega, se manda el siguiente
+// mensaje, y para entonces la página ya está navegando de nuevo y destruyó
+// el content script anterior, así que ese mensaje se pierde. pedir() por sí
+// solo no lo nota (una sola sendMessage), así que estos mensajes clave se
+// reintentan esperando a que la pestaña vuelva a estar 'complete' entre
+// intento e intento.
+async function pedirConReintento(tabId, mensaje, intentos = 4) {
+  for (let i = 0; i < intentos; i++) {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab) throw new Error('Se cerró la ventana del SCW.');
+    if (tab.status === 'complete') {
+      const r = await pedir(tabId, mensaje);
+      if (r) return r;
+    }
+    console.warn('[Infocivil consulta] Sin respuesta a "' + mensaje.action + '" (intento ' +
+      (i + 1) + '/' + intentos + ', status=' + tab.status + ', url=' + tab.url + ') — reintentando…');
+    await esperar(400 + i * 500);
+  }
+  return null;
+}
+
 // Espera hasta que el estado de la página cumpla la condición.
 async function esperarEstado(tabId, condicion, timeoutMs) {
   const inicio = Date.now();
@@ -92,8 +115,8 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
   let estado;
   try {
     avisar('Buscando ' + nombre + '…');
-    const r = await pedir(tabId, { action: 'completarFormularioBusqueda', valorJurisdiccion, numero, anio });
-    if (!r || !r.ok) throw new Error((r && r.error) || 'No se pudo completar la Consulta Pública.');
+    const r = await pedirConReintento(tabId, { action: 'completarFormularioBusqueda', valorJurisdiccion, numero, anio });
+    if (!r || !r.ok) throw new Error((r && r.error) || 'No se pudo completar la Consulta Pública (la página del SCW no respondió a tiempo).');
     const inicio = Date.now();
     let resultadosTomados = false;
     while (true) {
@@ -141,8 +164,8 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
   if (vuelta.vencido) throw new Error('No se pudo volver al expediente después de leer las históricas.');
 
   avisar('Leyendo actuaciones…');
-  const act = await pedir(tabId, { action: 'obtenerActuaciones' });
-  if (!act || !act.ok) throw new Error((act && act.error) || 'No se pudieron leer las actuaciones.');
+  const act = await pedirConReintento(tabId, { action: 'obtenerActuaciones' });
+  if (!act || !act.ok) throw new Error((act && act.error) || 'No se pudieron leer las actuaciones (la página no respondió a tiempo).');
 
   return {
     cid, tabId, aviso,
