@@ -139,9 +139,16 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
   // Playwright normal). Se guarda qué ventana estaba activa antes para
   // devolverle el foco apenas termina — la interrupción queda acotada a
   // lo que dura la consulta.
+  //
+  // Tamaño de escritorio (no 220×160 como en los intentos anteriores):
+  // las tres estrategias de ventana probadas hasta acá (minimizada,
+  // esquina sin foco, esquina con foco) fallaron igual con ese mismo
+  // tamaño chico — es candidato a ser la variable real, si el SCW sirve
+  // un diseño distinto (o sin el formulario esperado) en una ventana tan
+  // angosta.
   const ventana = await chrome.windows.create({
     url: URL_HOME, type: 'popup', state: 'normal', focused: true,
-    left: 0, top: 0, width: 220, height: 160,
+    left: 0, top: 0, width: 1024, height: 768,
   });
   sesion.windowId = ventana.id;
   sesion.ventanaPrevia = previa && previa.id !== ventana.id ? previa.id : null;
