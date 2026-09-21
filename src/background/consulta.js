@@ -44,10 +44,11 @@ function pedir(tabId, mensaje) {
 // (condicion sobre el resultado de 'estadoPagina') antes de mandar el
 // mensaje real, y si aun así no llega respuesta (perdida por una
 // renavegación en el instante entre medio), reintentar.
-async function pedirCuandoListo(tabId, condicion, mensaje, { timeoutMs = 20000, intentos = 6 } = {}) {
+async function pedirCuandoListo(tabId, condicion, mensaje, { timeoutMs = 30000 } = {}) {
   const inicio = Date.now();
-  let ultimoEstado = null;
-  for (let i = 0; i < intentos && Date.now() - inicio < timeoutMs; i++) {
+  let ultimoEstado = null, intento = 0;
+  while (Date.now() - inicio < timeoutMs) {
+    intento++;
     const tab = await chrome.tabs.get(tabId).catch(() => null);
     if (!tab) throw new Error('Se cerró la ventana del SCW.');
     if (tab.status === 'complete') {
@@ -57,17 +58,20 @@ async function pedirCuandoListo(tabId, condicion, mensaje, { timeoutMs = 20000, 
         const r = await pedir(tabId, mensaje);
         if (r) return r;
         console.warn('[Infocivil consulta] Página lista pero sin respuesta a "' + mensaje.action +
-          '" (intento ' + (i + 1) + '/' + intentos + ', url=' + tab.url + ') — probablemente renavegó justo entonces. Reintentando…');
+          '" (intento ' + intento + ', ' + Math.round((Date.now() - inicio) / 1000) + 's, url=' + tab.url +
+          ') — probablemente renavegó justo entonces. Reintentando…');
       } else if (estado) {
         ultimoEstado = estado;
-        console.warn('[Infocivil consulta] Página aún no lista para "' + mensaje.action + '" (intento ' +
-          (i + 1) + '/' + intentos + '): url=' + tab.url + ' enHome=' + estado.enHome +
+        // Uno cada pocos intentos alcanza: si tarda, no hace falta un log por cada poll de 400ms.
+        if (intento % 5 === 0) console.warn('[Infocivil consulta] Página aún no lista para "' + mensaje.action + '" (' +
+          Math.round((Date.now() - inicio) / 1000) + 's): url=' + tab.url + ' enHome=' + estado.enHome +
           ' esExpediente=' + estado.esExpediente + ' linksResultados=' + estado.linksResultados);
       }
     }
-    await esperar(400 + i * 300);
+    await esperar(Math.min(400 + intento * 200, 2000));
   }
-  if (ultimoEstado) console.warn('[Infocivil consulta] Último estado visto para "' + mensaje.action + '":', ultimoEstado);
+  console.warn('[Infocivil consulta] Se agotó el tiempo esperando "' + mensaje.action + '" (' +
+    Math.round(timeoutMs / 1000) + 's). Último estado visto:', ultimoEstado);
   return null;
 }
 
@@ -128,7 +132,7 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
   try {
     avisar('Buscando ' + nombre + '…');
     const r = await pedirCuandoListo(tabId, e => e.enHome,
-      { action: 'completarFormularioBusqueda', valorJurisdiccion, numero, anio });
+      { action: 'completarFormularioBusqueda', valorJurisdiccion, numero, anio }, { timeoutMs: 30000 });
     if (!r || !r.ok) throw new Error((r && r.error) || 'No se pudo completar la Consulta Pública (la página del SCW no terminó de asentarse).');
     const inicio = Date.now();
     let resultadosTomados = false;
