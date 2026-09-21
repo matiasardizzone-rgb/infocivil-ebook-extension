@@ -1,58 +1,58 @@
-# PJN Descargador
+# Infocivil Ebook — extensión de Chrome
 
-Extensión de Chrome (Manifest V3) para el **Sistema de Consulta Web (SCW)** del
-Poder Judicial de la Nación (scw.pjn.gov.ar). Permite:
+Lectura de expedientes del fuero Civil (PJN) como libro digital,
+exportaciones y "Mis Expedientes", todo en el navegador del operador,
+sin servidor central. Nace de `pjn-descargador` (este repo conserva su
+historial) y va sumando lo ya probado en Infocivil Ebook Portable.
 
-- Detectar y navegar todas las actuaciones de un expediente (incluye
-  paginación sin botones numerados y actuaciones históricas).
-- Descargar los documentos en un ZIP.
-- Ver el expediente como "libro" con un visor PDF.js integrado (TOC,
-  zoom, barra de URL del documento).
-- Descargar el expediente como **un único PDF unificado**, ordenado de
-  la actuación más vieja a la más actual, con:
-  - Portada + índice al principio, cada entrada como link interno a la
-    primera página de esa actuación.
-  - Pie de página con el link público (visible y clicable) del SCW en
-    **todas** las páginas de cada actuación, para trazabilidad.
-  - Sin páginas separadoras entre actuaciones.
-  - Página de error explícita ("ACTUACIÓN NO DISPONIBLE") cuando una
-    descarga falla, en vez de omitirla en silencio.
-  - **Copia de trabajo**: al unificar, las firmas electrónicas embebidas
-    de cada PDF original pierden validez criptográfica — para eso sigue
-    estando el ZIP con los originales.
-- Verificar la firma electrónica embebida en los PDF contra la cadena de
-  certificación del PJN (`firma.js`).
-- Guardar expedientes en una biblioteca local (IndexedDB vía `db.js`) y
-  detectar actuaciones nuevas respecto de la última descarga.
+Destinatarios: operadores del PJN, con Chrome común (sin política
+empresarial). Piso de compatibilidad: **Chrome 109** (equipos Windows
+7/8.1 de 32 bits). Estado: **desarrollo**, sin publicar.
 
 ## Estructura
 
-| Archivo | Rol |
+| Ruta | Rol |
 |---|---|
-| `manifest.json` | Manifest V3 de la extensión |
-| `content.js` | Corre en scw.pjn.gov.ar: scraping de actuaciones, paginación, históricas |
-| `background.js` | Service worker: mensajería, orquestación de descargas |
-| `popup.html` / `popup.js` | UI del popup de la extensión |
-| `biblioteca.html` / `biblioteca.js` | Vista de biblioteca de expedientes guardados |
-| `db.js` | Capa de persistencia (IndexedDB) |
-| `firma.js` | Verificación de certificados de firma electrónica (forge) |
-| `pjn_visor_libro_prototipo.html` | Prototipo del visor "libro" |
-| `pdf_min.js` / `pdf_worker_min.js` | PDF.js (vendored) — visor "libro" |
-| `forge_min.js` | node-forge (vendored) para verificación de firmas |
-| `unificador.js` | Arma el PDF unificado: índice hipervinculado + pie con link público |
-| `pdf_lib.min.js` | pdf-lib 1.17.1 (vendored, build UMD) |
-| `pdf_lib.esm.js` | Wrapper ESM sobre `pdf_lib.min.js` (el UMD no expone exports ESM) |
+| `manifest.json` | Manifest V3 de **desarrollo** (id fijo por `"key"`) |
+| `src/background/index.js` | Service worker: mensajería, biblioteca, descargas, PDF unificado |
+| `src/background/externo.js` | Canal landing → extensión (`onMessageExternal`), valida origen |
+| `src/content/scw-content.js` | Content script en scw.pjn.gov.ar: scraping, paginación, históricas |
+| `src/lib/db.js` | IndexedDB: expedientes, documentos, banderitas |
+| `src/lib/firma.js` | Verificación de firma electrónica PJN (alcance: ver comentario del archivo) |
+| `src/lib/unificador.js` | PDF unificado: portada, índice hipervinculado, link público al pie |
+| `src/public/popup.*` | Popup de la extensión |
+| `src/public/biblioteca.*` | Mis Expedientes + lector libro |
+| `src/public/lector.html` | Prototipo de lector con transición de página realista (sin integrar) |
+| `vendor/` | PDF.js, pdf-lib, forge (ver `vendor/LICENCIAS.md`) |
+| `icons/` | Íconos (provisorios) |
+| `landing/deteccion-extension.js` | Para la landing de Infocivil: detecta la extensión instalada |
+| `scripts/empaquetar-store.mjs` | Genera el ZIP para la Chrome Web Store |
+| `docs/PUBLICACION.md` | Identidad (dos ids), checklist de publicación, reglas Chrome 109 |
+| `docs/ESQUEMA-MANIFEST.md` | Diseño del expediente canónico (sin implementar) |
 
-## Estado / pendientes
+## Cómo probar
 
-- Scraping de `actuacionesHistoricas.seam`: el fetch por `cid` no siempre
-  trae la página real (a veces devuelve HTML de sesión en vez del PDF),
-  por lo que algunos documentos históricos pueden quedar en blanco.
+1. `chrome://extensions` → Modo desarrollador → "Cargar descomprimida" →
+   la carpeta del repo. El id tiene que ser `blbghgllddeiignhkclocamalkblagbi`.
+2. Abrir un expediente en `scw.pjn.gov.ar` y usar el popup.
 
-## Alcance de la verificación de firma (`firma.js`)
+## Hoja de ruta de la reconstrucción
 
-Verifica que el certificado del firmante encadene contra la Autoridad
-Certificante del PJN y esté dentro de su período de validez. **No** verifica
-integridad criptográfica completa (CMS/PKCS#7 sobre ByteRange) ni revocación
-— para esa garantía completa, usar Adobe Reader con los certificados del PJN
-importados.
+Hecho:
+- [x] Estructura `src/` + `vendor/` (corrige los nombres de vendor que
+      rompían la biblioteca en `pjn-descargador`).
+- [x] Identidad: manifest con clave fija, Chrome 109 mínimo, canal externo
+      con `ping`, empaquetado para la Store, detección desde la landing.
+
+Siguiente, en este orden:
+- [ ] Novedades por id de actuación (no por cantidad) y banderitas ancladas
+      a la actuación (no a la página), con migración de lo ya guardado.
+- [ ] Vinculados/incidentes: portar `vinculados.js` del Portable (versión
+      con clic real y selectores verificados contra el SCW).
+- [ ] Lectura continua en la biblioteca.
+- [ ] `buscarYAbrir` desde la landing.
+- [ ] Integrar `lector.html` (transición realista) al lector de la biblioteca.
+- [ ] EPUB.
+- [ ] LEX100 (falta el dominio y el formato de URL de actuación).
+
+Fuera de alcance: OCR, IA, integración con Infocivil LM.

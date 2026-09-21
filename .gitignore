@@ -10,3 +10,6 @@ Thumbs.db
 
 # Editor
 .vscode/
+
+# Salida del empaquetado para la Store
+dist/

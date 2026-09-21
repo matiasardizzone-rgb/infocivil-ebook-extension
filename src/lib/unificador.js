@@ -388,9 +388,9 @@ export async function generarPdfUnificado({ tituloExpediente, actuaciones, histo
   dibujarPortadaEIndice(pdf, paginasIndice, capPortada, capCont, startYPortada, fontBold, fontRegular, tituloLineas, entradasIndice, lineasAdvertencia);
 
   pdf.setTitle(titulo);
-  pdf.setSubject('Expediente judicial unificado — PJN Descargador');
-  pdf.setCreator('PJN Descargador');
-  pdf.setProducer('PJN Descargador (pdf-lib)');
+  pdf.setSubject('Expediente judicial unificado — Infocivil Ebook');
+  pdf.setCreator('Infocivil Ebook');
+  pdf.setProducer('Infocivil Ebook (pdf-lib)');
 
   return pdf.save();
 }

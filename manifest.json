@@ -1,16 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "PJN Descargador",
-  "version": "0.9.0",
-  "description": "Descarga, guarda localmente y visualiza documentos del Sistema de Consulta Web del PJN.",
-  "action": {
-    "default_title": "PJN Descargador",
-    "default_popup": "src/public/popup.html"
-  },
-  "background": {
-    "service_worker": "src/background/index.js",
-    "type": "module"
-  },
+  "name": "Infocivil Ebook",
+  "version": "0.1.0",
+  "description": "Lectura, exportación y anotación de expedientes del fuero Civil como libro digital.",
+  "minimum_chrome_version": "109",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwU9Ohgvm/74cI8PeU0hG7NSW/9212f7i7CRadRRZRHTtPdnYPc5CfkCLZ0pI69mzSUuxi/bmc1TgM8gBWrgYbzGNH4zw3ikCXRRL9J0g9sV/ZogkWVpuEavq6w8ct2+NBk3Pd8tnvKCSyM7Yx1E7FQST6AXEgLBBpJZZWSQa8IGKtAZBllO58KBRE/1fFNjVn1p2q2OZjTA+5QBuXO9XqZ1X+iZDqkWoXrRua/qnPGbGvjUaFcdWkfA54A9QUrscrf395MlsE0o0/ARzaecBHK2zFViVBvatuf5DCj3TyIWCW/SFFzJO14TCYo9uPADfncqmgCWD4lXeUwhDy3DefwIDAQAB",
   "permissions": [
     "activeTab",
     "downloads",
@@ -22,6 +16,10 @@
   "host_permissions": [
     "https://scw.pjn.gov.ar/*"
   ],
+  "background": {
+    "service_worker": "src/background/index.js",
+    "type": "module"
+  },
   "content_scripts": [
     {
       "matches": [
@@ -32,5 +30,19 @@
       ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "action": {
+    "default_title": "Infocivil Ebook",
+    "default_popup": "src/public/popup.html"
+  },
+  "externally_connectable": {
+    "matches": [
+      "*://10.5.1.224/*"
+    ]
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
 }
