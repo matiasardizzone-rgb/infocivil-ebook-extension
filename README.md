@@ -83,18 +83,19 @@ vuelta reales. Acortarlo en serio (por ejemplo, leyendo históricas y
 actuaciones en paralelo en vez de en secuencia) es una reestructuración,
 no un ajuste — queda pendiente, sin apurar.
 
-**Pendiente urgente, primera tarea de la próxima sesión — expedientes
-duplicados en Mis Expedientes.** El `cid` que usa el SCW identifica la
-CONSULTA, no el expediente: cada búsqueda nueva de un mismo expediente
-devuelve un `cid` distinto (confirmado: 8648, 15356, 18527, 19003, 26324,
-todos para CIV 2425/2026 en la misma sesión). Como la biblioteca guarda
-por `cid` (heredado de `pjn-descargador`, en `db.js` y en todas las
-llamadas de `bibliotecaIniciar`), cada búsqueda automática nueva crea una
-tarjeta nueva del mismo expediente. Arreglo: reindexar por número de
-expediente (jurisdicción+número+año[+incidente]) en vez de por `cid` —
-toca `STORE_EXPEDIENTES`, `STORE_DOCUMENTOS` y `STORE_MARCADORES` en
-`db.js` a la vez. No apurar esto: hay datos reales guardados, conviene
-probarlo a fondo antes de tocar el esquema.
+**Resuelto: expedientes duplicados en Mis Expedientes.** El `cid` del
+SCW identifica la CONSULTA, no el expediente (confirmado: 8648, 15356,
+18527, 19003, 26324, todos para CIV 2425/2026 en la misma sesión) — cada
+búsqueda nueva creaba una tarjeta nueva. En vez de reindexar toda la base
+por número de expediente (riesgoso con datos reales ya guardados), se
+agregó `db.fusionarDuplicadosPorNumero()`: al terminar de guardar, si ya
+hay otro expediente con el mismo número pero otro `cid`, se migran sus
+banderitas (ancladas por actuacionId, sobreviven el traspaso) y se borra
+el duplicado viejo. El esquema (`STORE_EXPEDIENTES` sigue por `cid`) no
+cambió; es una fusión al vuelo, no una migración. Marcadores en formato
+viejo (por página absoluta, sin actuacionId) no se pueden re-anclar sin
+el armado del libro de esa sesión vieja y se pierden al fusionar — caso
+raro a esta altura, ya casi todo migró a actuacionId.
 
 También funciona, confirmado contra el SCW real: **buscar el expediente a
 mano** (como siempre) y usar el popup — 💾 Guardar en biblioteca, 📎 PDF
@@ -111,7 +112,6 @@ Siguiente, en este orden:
       con clic real y selectores verificados contra el SCW).
 - [ ] Lectura continua dentro del lector (portar del paquete fusionado) y
       agregarla a la pantalla del expediente.
-- [ ] Expedientes duplicados por cid de sesión — ver arriba, primera tarea.
 - [ ] Lector real con el diseño del artefacto web: panel lateral con el
       índice de actuaciones (descripción, no solo número), páginas más
       grandes, y unificar el color de las barras superior e inferior en

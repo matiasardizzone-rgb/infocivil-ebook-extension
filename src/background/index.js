@@ -193,6 +193,8 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
           hash: db.calcularHash(archivos),
           fechaVerificacion: new Date().toISOString(),
         });
+        const fusionados = await db.fusionarDuplicadosPorNumero(message.cid, reg.numero);
+        if (fusionados) console.log('[Infocivil BG] Fusionados ' + fusionados + ' duplicado(s) de "' + reg.numero + '" en cid=' + message.cid);
         sendResponse({ ok: true, expediente: reg });
       } catch (err) {
         sendResponse({ ok: false, error: err.message });

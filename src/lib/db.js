@@ -261,8 +261,38 @@ async function eliminarMarcadorPorId(id) {
   await reqToPromise(store.delete(id));
 }
 
+// ─── Fusión de duplicados por número de expediente ──────────────────────
+// El cid del SCW identifica la CONSULTA, no el expediente: cada búsqueda
+// nueva del mismo expediente (sobre todo desde la pantalla de inicio, que
+// abre una sesión nueva del SCW cada vez) devuelve un cid distinto, y
+// quedaba una tarjeta nueva en la biblioteca por cada búsqueda. Se llama
+// al terminar de guardar: si ya existe otro expediente con el mismo
+// número pero otro cid, se migran sus banderitas (ancladas por
+// actuacionId, no por cid, así que sobreviven el traspaso intactas) y se
+// borra el duplicado viejo, dejando una sola tarjeta con los datos recién
+// descargados (más completos que los de la vez anterior).
+async function fusionarDuplicadosPorNumero(cid, numero) {
+  if (!numero) return 0;
+  const todos = await listarExpedientes();
+  const duplicados = todos.filter(e => e.cid !== cid && e.numero === numero);
+  for (const dup of duplicados) {
+    const marcadoresViejos = await obtenerMarcadores(dup.cid);
+    for (const m of marcadoresViejos) {
+      if (m.actuacionId) {
+        await guardarMarcador({ cid, actuacionId: m.actuacionId, pagina: m.pagina, label: m.label, color: m.color });
+      }
+      // Marcadores en formato viejo (por página absoluta, sin actuacionId)
+      // no se pueden re-anclar sin el armado del libro de esa sesión: se
+      // pierden al fusionar. Son un resabio de antes del anclaje por
+      // actuación (ver migrarBanderitasViejas en background/index.js).
+    }
+    await eliminarExpediente(dup.cid);
+  }
+  return duplicados.length;
+}
+
 export {
-  calcularHash, idActuacion, idDeDocumento,
+  calcularHash, idActuacion, idDeDocumento, fusionarDuplicadosPorNumero,
   guardarExpediente, obtenerExpediente, listarExpedientes,
   actualizarEstadoExpediente, eliminarExpediente,
   guardarDocumento, obtenerDocumentos, contarDocumentos, marcarEliminadasEnSCW,
