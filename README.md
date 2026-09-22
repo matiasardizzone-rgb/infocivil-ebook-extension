@@ -64,19 +64,30 @@ aparece "Ningún link público coincide con lo guardado", no lo es.
       del SCW se cierra sola al salir de la pantalla.
 - [x] Visor sobre el SCW: tiempo límite por actuación y progreso por foja.
 
-**Estado real (probado contra el SCW): la búsqueda automática de
-`src/public/inicio.html` no funciona todavía.** Se probaron cinco
-estrategias de ventana para la pestaña de búsqueda (minimizada, chica sin
-foco, chica con foco, grande con foco, y finalmente una pestaña común) y
-ninguna llegó de forma confiable al formulario de Consulta Pública contra
-el sitio real, aunque sí contra un SCW simulado. La causa de fondo no se
-identificó. **No usar esta pantalla por ahora** — queda en el repo para
-retomar con acceso real al SCW para diagnosticar en vivo.
+**Estado real (confirmado contra el SCW): la búsqueda automática de
+`src/public/inicio.html` funciona de punta a punta.** Búsqueda,
+históricas, actuaciones, vuelta al formulario y "Leer como libro" — todo
+probado contra el sitio real. La pestaña del SCW se abre con foco (hace
+falta para que el SCW no la trate como en segundo plano) pero devuelve el
+foco al operador apenas confirma el expediente, no al final.
 
-Lo que SÍ funciona, confirmado contra el SCW real: **buscar el expediente
-a mano** (como siempre) y usar el popup — 💾 Guardar en biblioteca, 📎 PDF
-unificado con índice y enlaces, ⬇️ ZIP, y ahora también **📖 Leer como
-libro**, que guarda (mismo camino que 💾) y abre directo el lector real
+**Pendiente urgente, primera tarea de la próxima sesión — expedientes
+duplicados en Mis Expedientes.** El `cid` que usa el SCW identifica la
+CONSULTA, no el expediente: cada búsqueda nueva de un mismo expediente
+devuelve un `cid` distinto (confirmado: 8648, 15356, 18527, 19003, 26324,
+todos para CIV 2425/2026 en la misma sesión). Como la biblioteca guarda
+por `cid` (heredado de `pjn-descargador`, en `db.js` y en todas las
+llamadas de `bibliotecaIniciar`), cada búsqueda automática nueva crea una
+tarjeta nueva del mismo expediente. Arreglo: reindexar por número de
+expediente (jurisdicción+número+año[+incidente]) en vez de por `cid` —
+toca `STORE_EXPEDIENTES`, `STORE_DOCUMENTOS` y `STORE_MARCADORES` en
+`db.js` a la vez. No apurar esto: hay datos reales guardados, conviene
+probarlo a fondo antes de tocar el esquema.
+
+También funciona, confirmado contra el SCW real: **buscar el expediente a
+mano** (como siempre) y usar el popup — 💾 Guardar en biblioteca, 📎 PDF
+unificado con índice y enlaces, ⬇️ ZIP, y **📖 Leer como libro**, que
+guarda (mismo camino que 💾) y abre directo el lector real
 (`biblioteca.html`) en vez del visor continuo viejo.
 
 **Límite conocido:** en Chrome 109 el service worker se corta a los 5
@@ -88,12 +99,13 @@ Siguiente, en este orden:
       con clic real y selectores verificados contra el SCW).
 - [ ] Lectura continua dentro del lector (portar del paquete fusionado) y
       agregarla a la pantalla del expediente.
-- [ ] Búsqueda automática (`inicio.html`): diagnosticar contra el SCW
-      real por qué el formulario nunca se completa (ver arriba). Con
-      acceso en vivo alcanza con mirar la pestaña mientras busca — ya no
-      hace falta que sea invisible, solo que funcione.
-- [ ] Incidentes: abrirlos desde la pantalla de inicio (con vinculados),
-      una vez resuelto lo anterior.
+- [ ] Expedientes duplicados por cid de sesión — ver arriba, primera tarea.
+- [ ] Lector real con el diseño del artefacto web: panel lateral con el
+      índice de actuaciones (descripción, no solo número), páginas más
+      grandes, y unificar el color de las barras superior e inferior en
+      azul (línea con el resto de Infocivil). Referencia: el lector viejo
+      del portal web (`Infocivil-Ebook-Portable`).
+- [ ] Incidentes: abrirlos desde la pantalla de inicio (con vinculados).
 - [ ] `buscarYAbrir` desde la landing.
 - [ ] Integrar `lector.html` (transición realista) al lector de la biblioteca.
 - [ ] EPUB.

@@ -174,6 +174,9 @@ async function actualizarExpediente(exp, card) {
 
 document.getElementById('btnHome').addEventListener('click', () => { cargarBiblioteca(); mostrarBiblioteca(); });
 document.getElementById('expteSwitch').addEventListener('click', () => { cargarBiblioteca(); mostrarBiblioteca(); });
+document.getElementById('btnNuevaConsulta').addEventListener('click', () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL('src/public/inicio.html') });
+});
 document.getElementById('zoomSel').addEventListener('change', async function () {
   zoomManual = parseFloat(this.value);
   pages.forEach(p => { p.canvas = null; });
