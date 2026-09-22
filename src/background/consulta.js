@@ -214,6 +214,13 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
     aviso = 'La apertura de incidentes todavía no está disponible: se abrió el expediente principal.';
   }
 
+  // Ya se confirmó el expediente: devolver el foco ACÁ, no al final. Lo
+  // que queda (históricas + actuaciones) es navegación propia de la
+  // pestaña y fetch() de PDFs — nada de eso depende de que esté a la
+  // vista. Antes se esperaba a que todo terminara para devolver el foco,
+  // y el operador se quedaba mirando la pestaña del SCW de punta a punta.
+  devolverFoco(sesion);
+
   // Históricas: se leen navegando la misma pestaña a su página (el
   // content script las lee solo y las deja en storage) y se vuelve.
   avisar('Leyendo actuaciones históricas…');
@@ -230,10 +237,6 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
   avisar('Leyendo actuaciones…');
   const act = await pedirCuandoListo(tabId, e => e.esExpediente, { action: 'obtenerActuaciones' }, { timeoutMs: 25000 });
   if (!act || !act.ok) throw new Error((act && act.error) || 'No se pudieron leer las actuaciones (la página del expediente no terminó de asentarse).');
-
-  // Encontrado: la ventana ya no necesita foco (las descargas que vengan
-  // después usan fetch() en la página, que no depende de la visibilidad).
-  devolverFoco(sesion);
 
   return {
     cid, tabId, aviso,
