@@ -163,10 +163,27 @@ async function ejecutar(fn) {
 }
 
 $('btnEbook').addEventListener('click', () => ejecutar(async () => {
-  await guardar();
-  estado('Abriendo el libro…', 'ok');
-  location.href = 'biblioteca.html?abrir=' + encodeURIComponent(exp.cid);
+  const r = await guardar();
+  // Pestaña nueva, no location.href: así el libro queda abierto aparte y
+  // esta pantalla puede volver a la búsqueda para el próximo expediente,
+  // sin perder el que se acaba de abrir.
+  chrome.tabs.create({ url: chrome.runtime.getURL('src/public/biblioteca.html?abrir=' + encodeURIComponent(exp.cid)) });
+  volverABuscar('✓ Libro abierto en una pestaña nueva (' + r.descargados + ' actuaciones' +
+    (r.errores ? ', ' + r.errores + ' con error' : '') + ').');
 }));
+
+function volverABuscar(mensaje) {
+  exp = null;
+  $('vistaExpediente').hidden = true;
+  $('linkNueva').hidden = true;
+  $('vistaBuscar').hidden = false;
+  $('numero').value = '';
+  $('anio').value = '';
+  $('incidente').value = '';
+  $('btnConsultar').disabled = false;
+  estadoBuscar(mensaje || '', mensaje ? 'ok' : '');
+  $('numero').focus();
+}
 
 $('btnGuardar').addEventListener('click', () => ejecutar(async () => {
   const r = await guardar();
