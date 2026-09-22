@@ -143,7 +143,11 @@ async function esperarStorage(clave, timeoutMs) {
 }
 
 async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, sesion, avisar) {
-  const nombre = `${sigla} ${numero}/${anio}`;
+  // Se reasigna más abajo si termina abriendo un incidente en vez del
+  // principal (nombre del PRINCIPAL hasta ese punto — los mensajes de
+  // "Buscando…"/"Abriendo…" de más arriba hablan del principal a propósito,
+  // es lo que el operador tecleó).
+  let nombre = `${sigla} ${numero}/${anio}`;
 
   // Varias ventanas aparte (minimizada, chica sin foco, chica con foco,
   // grande con foco) se probaron para intentar que la búsqueda fuera
@@ -228,12 +232,50 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
     chrome.tabs.onUpdated.removeListener(onUpdated);
   }
 
-  const cid = estado.cid;
-  sesion.cid = cid;
+  let cid = estado.cid;
   let aviso = '';
+
+  // Vinculados: se leen siempre (para mostrarlos en la pantalla de
+  // resultados, haya o no incidente pedido), sobre el expediente PRINCIPAL
+  // — es donde vive la solapa "Vinculados".
+  avisar('Buscando vinculados…');
+  let vinculados = [];
+  const vin = await pedir(tabId, { action: 'leerVinculados' });
+  if (vin && vin.ok) vinculados = vin.vinculados || [];
+  else console.warn('[Infocivil consulta] No se pudo leer vinculados:', vin && vin.error);
+
   if (incidente) {
-    aviso = 'La apertura de incidentes todavía no está disponible: se abrió el expediente principal.';
+    const objetivo = sigla + ' ' + numero + '/' + anio + '/' + incidente;
+    avisar('Abriendo el incidente ' + incidente + '…');
+    const cidPrincipal = cid;
+    let r = await pedir(tabId, { action: 'abrirVinculado', expediente: objetivo });
+    if (!r) {
+      // Mismo patrón que el envío del formulario de búsqueda (v0.5.5): el
+      // clic en el botón "ojo" puede funcionar de verdad (la página navega
+      // al incidente) y perderse solo la RESPUESTA, porque la navegación
+      // destruye el content script en el instante de contestar. Antes de
+      // reintentar —que correría sobre la página YA navegada al incidente,
+      // sin tabla de vinculados, y fallaría por una razón distinta y
+      // confusa— nos fijamos si ya cambió de expediente.
+      await esperar(800);
+      const chequeo = await pedir(tabId, { action: 'estadoPagina' });
+      if (chequeo && chequeo.esExpediente && chequeo.cid && chequeo.cid !== cidPrincipal) {
+        r = { ok: true, cid: chequeo.cid };
+        console.warn('[Infocivil consulta] Abrir vinculado sin confirmar respuesta, pero la página ya cambió de expediente (probablemente sí funcionó): cid=' + chequeo.cid);
+      } else {
+        await esperar(1000);
+        r = await pedir(tabId, { action: 'abrirVinculado', expediente: objetivo });
+      }
+    }
+    if (r && r.ok && r.cid) {
+      cid = r.cid;
+      nombre = objetivo; // ya no es el principal: la pantalla debe decir "CIV .../n", no el principal
+    } else {
+      aviso = 'No se pudo abrir el incidente ' + incidente + ' (' +
+        ((r && r.error) || 'no encontrado en Vinculados') + '): se abrió el expediente principal.';
+    }
   }
+  sesion.cid = cid;
 
   // Ya se confirmó el expediente: devolver el foco ACÁ, no al final. Lo
   // que queda (históricas + actuaciones) es navegación propia de la
@@ -269,7 +311,35 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
     archivos: act.archivos || [],
     historicasFaltantes: !!act.historicasFaltantes,
     paginacionIncompleta: !!act.paginacionIncompleta,
+    vinculados,
   };
+}
+
+// Abrir un vinculado desde la pantalla de resultados: mensaje suelto
+// (sendMessage), no puerto. Un puerto de conexión larga (el que usa la
+// búsqueda inicial) puede quedar mirando a un service worker que ya se
+// apagó por inactividad — visto en la práctica: la pantalla de resultados
+// puede quedar quieta un buen rato antes de que alguien toque "Abrir" en
+// un vinculado, tiempo de sobra para que se apague. sendMessage es el
+// mecanismo estándar para justamente ese caso (despertarlo bajo demanda),
+// a costa de no tener mensajes de 'etapa' en vivo por este camino — la
+// pantalla ya no los necesita, solo el resultado final.
+export function iniciarAperturaVinculados() {
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (!msg || msg.action !== 'consultarVinculado') return;
+    const sesion = {};
+    (async () => {
+      try {
+        const res = await consultar(msg, sesion, () => {});
+        sendResponse({ tipo: 'listo', ...res });
+      } catch (err) {
+        console.warn('[Infocivil consulta]', err);
+        if (sesion.tabId) chrome.tabs.remove(sesion.tabId).catch(() => {});
+        sendResponse({ tipo: 'error', texto: err.message || String(err) });
+      }
+    })();
+    return true; // respuesta asíncrona
+  });
 }
 
 export function iniciarConsultas() {

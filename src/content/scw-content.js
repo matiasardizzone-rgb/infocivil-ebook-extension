@@ -33,6 +33,22 @@
       return false;
     }
 
+    if (message.action === 'leerVinculados') {
+      (async () => {
+        try { sendResponse({ ok: true, ...(await leerVinculadosDOM()) }); }
+        catch (e) { sendResponse({ ok: false, error: e.message || String(e) }); }
+      })();
+      return true;
+    }
+
+    if (message.action === 'abrirVinculado') {
+      (async () => {
+        try { sendResponse({ ok: true, ...(await abrirVinculadoDOM(message.expediente)) }); }
+        catch (e) { sendResponse({ ok: false, error: e.message || String(e) }); }
+      })();
+      return true;
+    }
+
     if (message.action === 'findPdfs') {
       (async () => {
         try {
@@ -1038,6 +1054,116 @@ init();
     const onclick = boton.getAttribute('onclick') || '';
     if (onclick) await ejecutarEnPaginaViaBg(onclick);
     else dispararClickReal(boton);
+  }
+
+  // ─── Vinculados / incidentes ────────────────────────────────────────────
+  // Portado de vinculados.js del Portable (versión Playwright, probada
+  // contra el SCW real; "playwright-reference" en el paquete fusionado
+  // resultó ser una copia literal, nunca se portó a DOM de verdad).
+  // Selectores verificados por el Portable sobre el HTML real de la solapa
+  // abierta — no confirmados de nuevo acá.
+  const SELECTOR_TABLA_VINCULADOS = '#expediente\\:connectedTable';
+  const SELECTOR_CONTENIDO_VINCULADOS = '#expediente\\:vinculadosTab';
+
+  // Normaliza "CIV 013719/2023/1" y "CIV 13719/2023/1" a la misma clave.
+  function claveExpediente(texto) {
+    const m = (texto || '').match(/([A-Z]{2,4})\s*0*(\d+)\/(\d{4})\/(\d+)/i);
+    if (!m) return null;
+    return m[1].toUpperCase() + '|' + Number(m[2]) + '|' + m[3] + '|' + Number(m[4]);
+  }
+  function contieneClave(texto, clave) {
+    const re = /([A-Z]{2,4})\s*0*(\d+)\/(\d{4})\/(\d+)/gi;
+    let m;
+    while ((m = re.exec(texto || '')) !== null) {
+      if (m[1].toUpperCase() + '|' + Number(m[2]) + '|' + m[3] + '|' + Number(m[4]) === clave) return true;
+    }
+    return false;
+  }
+
+  function abrirSolapaVinculados() {
+    // RichFaces engancha el manejador por JS, no por atributo onclick — clic
+    // real (mousedown/up/click), no ejecutar código.
+    const etiquetas = Array.from(document.querySelectorAll('.rf-tab-lbl'))
+      .filter(el => (el.textContent || '').trim() === 'Vinculados');
+    for (const el of etiquetas) {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) { dispararClickReal(el); return true; }
+    }
+    return false;
+  }
+
+  function leerFilasVinculados() {
+    const tabla = document.querySelector(SELECTOR_TABLA_VINCULADOS);
+    const filas = tabla ? Array.from(tabla.querySelectorAll('tbody tr')) : [];
+    const salida = [];
+    for (const fila of filas) {
+      const celdas = Array.from(fila.querySelectorAll('td')).map(c => (c.innerText || '').trim());
+      if (!celdas.length) continue;
+      const expediente = (celdas[0] || '').replace(/\s+/g, ' ').trim();
+      if (!/\d+\/\d{4}\/\d+/.test(expediente)) continue;
+      salida.push({
+        expediente, dependencia: celdas[1] || '', situacion: celdas[2] || '',
+        caratula: celdas[3] || '', ultimaActuacion: celdas[4] || '',
+      });
+    }
+    return salida;
+  }
+
+  // { vinculados: [...], estado: 'ok'|'sin-vinculados'|'no-disponible' }
+  async function leerVinculadosDOM() {
+    if (!abrirSolapaVinculados()) return { vinculados: [], estado: 'no-disponible' };
+
+    // El contenido llega por AJAX recién al abrir la solapa.
+    const inicioEspera = Date.now();
+    while (!document.querySelector(SELECTOR_CONTENIDO_VINCULADOS) && Date.now() - inicioEspera < 12000) {
+      await esperar(300);
+    }
+
+    const inicio = Date.now();
+    while (Date.now() - inicio < 12000) {
+      const filas = leerFilasVinculados();
+      if (filas.length) return { vinculados: filas, estado: 'ok' };
+      const texto = (document.body && document.body.innerText) || '';
+      if (/total de 0 vinculado/i.test(texto) || /no se (han )?encontr/i.test(texto)) {
+        return { vinculados: [], estado: 'sin-vinculados' };
+      }
+      await esperar(400);
+    }
+    return { vinculados: [], estado: 'sin-vinculados' };
+  }
+
+  // { cid: '...' } — expediente: ej. 'CIV 013719/2023/1' (los ceros no importan).
+  async function abrirVinculadoDOM(expediente) {
+    const clave = claveExpediente(expediente);
+    if (!clave) throw new Error('No se entiende el expediente "' + expediente + '".');
+
+    const filas = Array.from(document.querySelectorAll(SELECTOR_TABLA_VINCULADOS + ' tbody tr'));
+    let objetivo = null;
+    for (const fila of filas) {
+      if (claveExpediente(fila.innerText) === clave) { objetivo = fila; break; }
+    }
+    if (!objetivo) throw new Error('No se encontró el vinculado ' + expediente + ' en la lista.');
+
+    const boton = objetivo.querySelector('a.btn, a[onclick]');
+    if (!boton) throw new Error('No se encontró el botón para abrir ' + expediente + '.');
+
+    // Clic real no alcanza: el onclick hace un submit de formulario JSF
+    // (mojarra.jsfcljs) — se ejecuta ese código en la página, mismo
+    // mecanismo que el botón "Consultar" de home.seam.
+    const urlAntes = location.href;
+    const onclick = boton.getAttribute('onclick') || '';
+    if (onclick) await ejecutarEnPaginaViaBg(onclick);
+    else dispararClickReal(boton);
+
+    const inicio = Date.now();
+    while (Date.now() - inicio < 25000) {
+      const m = location.href.match(/cid=(\d+)/);
+      const texto = (document.body && document.body.innerText) || '';
+      if (m && texto.length > 200 && contieneClave(texto, clave)) return { cid: m[1] };
+      await esperar(400);
+    }
+    throw new Error('No se pudo abrir ' + expediente + ': el sitio no terminó de cargarlo' +
+      (location.href === urlAntes ? ' (la página no cambió).' : '.'));
   }
 
   // Página intermedia de resultados (sin confirmar si el SCW la muestra

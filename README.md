@@ -113,13 +113,44 @@ unificado con índice y enlaces, ⬇️ ZIP, y **📖 Leer como libro**, que
 guarda (mismo camino que 💾) y abre directo el lector real
 (`biblioteca.html`) en vez del visor continuo viejo.
 
+**Resuelto: Vinculados / incidentes.** Portado de `vinculados.js` del
+Portable (versión Playwright probada contra el SCW real — la
+"playwright-reference" del paquete fusionado resultó ser una copia
+literal, nunca se había portado a DOM de verdad). Al confirmar el
+expediente principal, se leen sus vinculados (solapa "Vinculados", clic
+real + `#expediente:connectedTable`) y se muestran en la pantalla de
+resultados con un botón "Abrir" cada uno (estilo del portal web). Si se
+pidió un incidente puntual desde el formulario, se abre automáticamente
+(botón "ojo" de la fila — requiere ejecutar su onclick en la página, un
+clic sintético no alcanza) y el resto del flujo (históricas, actuaciones)
+sigue sobre el incidente, no el principal. Si el incidente pedido no
+aparece en Vinculados, cae al principal con un aviso claro.
+
+Dos bugs de fondo encontrados y corregidos en el camino, los dos con el
+mismo patrón que ya había aparecido en la búsqueda (v0.5.5) — una
+respuesta perdida por navegación no es lo mismo que un fallo real:
+- Abrir un vinculado desde la pantalla de resultados (después de que la
+  búsqueda inicial ya terminó) usaba el mismo puerto de conexión larga de
+  esa búsqueda — y el service worker de una extensión Manifest V3 se
+  apaga solo tras un rato de inactividad. Ahora usa `sendMessage` (mensaje
+  suelto, sin conexión que mantener), que despierta el service worker de
+  forma confiable bajo demanda.
+- El clic en el botón "ojo" de un vinculado funciona (navega al incidente)
+  pero puede perderse la respuesta si la navegación destruye el content
+  script en el instante de contestar — igual que pasaba con el botón
+  "Consultar" del formulario. Antes de reintentar (que corría sobre la
+  página YA navegada, sin tabla de vinculados, y fallaba distinto), se
+  verifica si la página ya cambió de expediente.
+
+Probado con un vinculado real: lista visible en pantalla, "Abrir" desde
+el botón, pedido directo desde el formulario con el campo Incidente, y
+caída correcta al principal cuando el incidente no existe.
+
 **Límite conocido:** en Chrome 109 el service worker se corta a los 5
 minutos aunque esté trabajando; una consulta normal tarda mucho menos, pero
 un expediente enorme podría no llegar. Desde Chrome 110 no pasa.
 
 Siguiente, en este orden:
-- [ ] Vinculados/incidentes: portar `vinculados.js` del Portable (versión
-      con clic real y selectores verificados contra el SCW).
 - [ ] Lectura continua dentro del lector (portar del paquete fusionado) y
       agregarla a la pantalla del expediente.
 - [ ] Lector real con el diseño del artefacto web: panel lateral con el
@@ -127,7 +158,6 @@ Siguiente, en este orden:
       grandes, y unificar el color de las barras superior e inferior en
       azul (línea con el resto de Infocivil). Referencia: el lector viejo
       del portal web (`Infocivil-Ebook-Portable`).
-- [ ] Incidentes: abrirlos desde la pantalla de inicio (con vinculados).
 - [ ] `buscarYAbrir` desde la landing.
 - [ ] Integrar `lector.html` (transición realista) al lector de la biblioteca.
 - [ ] EPUB.

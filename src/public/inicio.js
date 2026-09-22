@@ -4,7 +4,7 @@
 // src/background/consulta.js en una ventana minimizada del SCW, que queda
 // abierta mientras esta pantalla esté abierta (las descargas la usan).
 
-import { JURISDICCIONES } from '../lib/jurisdicciones.js';
+import { JURISDICCIONES, valorPorSigla } from '../lib/jurisdicciones.js';
 
 const $ = id => document.getElementById(id);
 let puerto = null;
@@ -39,17 +39,29 @@ function bloquearAcciones(si) {
   }
 })();
 
-function conectar() {
-  if (puerto) return puerto;
-  puerto = chrome.runtime.connect({ name: 'consulta' });
-  puerto.onMessage.addListener(recibir);
-  puerto.onDisconnect.addListener(() => {
+// Cada consulta abre SU PROPIA conexión, no reusa una vieja: el service
+// worker de una extensión Manifest V3 se apaga solo tras un rato sin
+// actividad, y un puerto conectado a un worker ya apagado se queda
+// "vivo" del lado del cliente pero no llega a ningún lado — visto en la
+// práctica al abrir un vinculado después de que la búsqueda inicial ya
+// había terminado y la pantalla llevaba un rato quieta: postMessage no
+// tiraba error, pero el mensaje nunca llegaba al fondo.
+function iniciarBusqueda(datos) {
+  if (puerto) puerto.disconnect();
+  const p = chrome.runtime.connect({ name: 'consulta' });
+  puerto = p;
+  p.onMessage.addListener(recibir);
+  p.onDisconnect.addListener(() => {
+    // Si 'puerto' ya no es ESTE puerto, es porque se reemplazó por una
+    // conexión más nueva (iniciarBusqueda de vuelta): este disconnect es
+    // el de la conexión vieja cerrándose a propósito, no un corte real.
+    if (puerto !== p) return;
     puerto = null;
     const msg = 'Se perdió la conexión con la extensión. Volvé a consultar el expediente.';
     if (!$('vistaExpediente').hidden) { estado(msg, 'error'); bloquearAcciones(true); }
     else { estadoBuscar(msg, 'error'); $('btnConsultar').disabled = false; }
   });
-  return puerto;
+  p.postMessage({ tipo: 'consultar', ...datos });
 }
 
 $('formBuscar').addEventListener('submit', ev => {
@@ -67,7 +79,7 @@ $('formBuscar').addEventListener('submit', ev => {
 
   $('btnConsultar').disabled = true;
   estadoBuscar('Buscando el expediente en el SCW… puede demorar unos segundos.', 'cargando');
-  conectar().postMessage({ tipo: 'consultar', valorJurisdiccion, sigla, numero, anio, incidente });
+  iniciarBusqueda({ valorJurisdiccion, sigla, numero, anio, incidente });
 });
 
 function recibir(msg) {
@@ -76,9 +88,18 @@ function recibir(msg) {
   } else if (msg.tipo === 'error') {
     estadoBuscar(msg.texto, 'error');
     $('btnConsultar').disabled = false;
+    // Por si el error vino de abrir un vinculado (con vistaExpediente
+    // visible, no vistaBuscar): sin esto, las acciones quedaban
+    // bloqueadas para siempre (mismo motivo que en el 'listo' de abajo).
+    bloquearAcciones(false);
+    if (!vistaExpediente.hidden) estado(msg.texto, 'error');
   } else if (msg.tipo === 'listo') {
     exp = msg;
     mostrarExpediente();
+    // bloquearAcciones(true) al abrir un vinculado (más arriba) no tiene su
+    // propio 'false': lo pone acá, en el punto de llegada común a la
+    // búsqueda inicial y a abrir un vinculado.
+    bloquearAcciones(false);
   }
 }
 
@@ -109,6 +130,77 @@ async function mostrarExpediente() {
   const r = await new Promise(res => chrome.runtime.sendMessage({ action: 'bibliotecaListar' }, res));
   const guardado = r && r.ok && (r.expedientes || []).some(e => e.cid === exp.cid);
   $('btnGuardarTexto').textContent = guardado ? 'Actualizar en Mis expedientes' : 'Agregar a Mis expedientes';
+
+  renderVinculados();
+}
+
+// Incidentes y expedientes vinculados del principal (estilo del portal web).
+function renderVinculados() {
+  const cont = $('listaVinculados');
+  cont.innerHTML = '';
+  const lista = exp.vinculados || [];
+  $('seccionVinculados').hidden = !lista.length;
+  for (const v of lista) {
+    const fila = document.createElement('div');
+    fila.className = 'vinculado';
+
+    const datos = document.createElement('div');
+    datos.className = 'vinculado-datos';
+    const idEl = document.createElement('div'); idEl.className = 'vinculado-id'; idEl.textContent = v.expediente;
+    const car = document.createElement('div'); car.className = 'vinculado-caratula'; car.textContent = v.caratula || '';
+    const meta = document.createElement('div'); meta.className = 'vinculado-meta';
+    meta.textContent = [v.dependencia, v.situacion, v.ultimaActuacion ? 'últ. act. ' + v.ultimaActuacion : '']
+      .filter(Boolean).join(' · ');
+    datos.append(idEl, car, meta);
+
+    const boton = document.createElement('button');
+    boton.className = 'boton-secundario';
+    boton.textContent = 'Abrir';
+    boton.addEventListener('click', () => abrirVinculadoDesdeResultado(boton, v.expediente));
+
+    fila.append(datos, boton);
+    cont.appendChild(fila);
+  }
+}
+
+// "CIV 013719/2023/1" → { sigla, numero, anio, incidente }. Los ceros a la
+// izquierda no importan (el SCW los muestra, el formulario no los pide).
+function partirExpediente(texto) {
+  const m = (texto || '').match(/([A-Z]{2,4})\s*0*(\d+)\/(\d{4})\/(\d+)/i);
+  if (!m) return null;
+  return { sigla: m[1].toUpperCase(), numero: String(Number(m[2])), anio: m[3], incidente: String(Number(m[4])) };
+}
+
+function abrirVinculadoDesdeResultado(boton, expedienteTexto) {
+  if (ocupado) return;
+  const partes = partirExpediente(expedienteTexto);
+  if (!partes) return;
+  const valorJurisdiccion = valorPorSigla(partes.sigla);
+  if (valorJurisdiccion == null) {
+    estado('No se reconoce la jurisdicción "' + partes.sigla + '".', 'error');
+    return;
+  }
+  boton.disabled = true;
+  boton.textContent = 'Abriendo…';
+  bloquearAcciones(true);
+  // Sin progreso en vivo acá (a diferencia del formulario inicial): los
+  // mensajes de etapa van al estado de la pantalla de búsqueda, que queda
+  // oculta mientras se ve el expediente. Al terminar, recibir() reemplaza
+  // 'exp' y vuelve a llamar mostrarExpediente() con el incidente.
+  estado('Abriendo ' + expedienteTexto + '… puede demorar unos segundos.', 'cargando');
+  // sendMessage, no el puerto de la búsqueda inicial: acá no hace falta
+  // progreso en vivo, y es más robusto para despertar el service worker
+  // si lleva un rato inactivo (ver el comentario en
+  // iniciarAperturaVinculados, background/consulta.js).
+  chrome.runtime.sendMessage({ action: 'consultarVinculado', valorJurisdiccion, ...partes }, resp => {
+    bloquearAcciones(false);
+    if (chrome.runtime.lastError) {
+      estado('Se perdió la conexión con la extensión. Probá de nuevo.', 'error');
+      return;
+    }
+    if (resp && resp.tipo === 'listo') { exp = resp; mostrarExpediente(); }
+    else estado((resp && resp.texto) || 'No se pudo abrir el incidente.', 'error');
+  });
 }
 
 // Espera el fin de una descarga que informa por chrome.storage (mismo
