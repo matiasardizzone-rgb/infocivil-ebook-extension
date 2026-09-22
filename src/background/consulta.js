@@ -28,7 +28,6 @@ const esperar = ms => new Promise(r => setTimeout(r, ms));
 // que la ventana de consulta se cierre (sigue abierta, sin foco, por si
 // hace falta para las descargas).
 function devolverFoco(sesion) {
-  if (sesion.rescateTimer) { clearTimeout(sesion.rescateTimer); sesion.rescateTimer = null; }
   if (sesion.pestanaPrevia) chrome.tabs.update(sesion.pestanaPrevia, { active: true }).catch(() => {});
 }
 
@@ -159,23 +158,17 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
     .then(t => (t && t[0]) || null).catch(() => null);
 
   avisar('Conectando con el Sistema de Consulta Web…');
-  // En segundo plano, no active:true: los arreglos que terminaron
-  // haciendo funcionar la búsqueda (detectar el expediente por URL, y
-  // tolerar la respuesta perdida del envío del formulario) no tienen que
-  // ver con que la pestaña esté a la vista — la necesidad de foco era una
-  // hipótesis de una etapa anterior que nunca se reconfirmó después de
-  // esos arreglos. Si el sitio real sí depende de que esté en primer
-  // plano (Chrome frena timers en pestañas ocultas), rescatarFoco() más
-  // abajo la trae al frente sola si el margen de tiempo se agota sin
-  // señales de vida, en vez de fallar en silencio como antes.
-  const tab = await chrome.tabs.create({ url: URL_HOME, active: false });
+  // Con foco (active:true): se probó en segundo plano (v0.6.0) con un
+  // rescate que la traía al frente si tardaba — contra el sitio real
+  // igual terminaba apareciendo, probablemente porque el SCW sí necesita
+  // estar en primer plano durante los saltos de navegación de home.seam.
+  // Se vuelve a lo confirmado: con foco desde el arranque, y devuelto
+  // apenas se encuentra el expediente (unos segundos después, no al
+  // final) — eso sí anduvo bien contra el sitio real.
+  const tab = await chrome.tabs.create({ url: URL_HOME, active: true });
   const tabId = tab.id;
   sesion.tabId = tabId;
   sesion.pestanaPrevia = pestanaPrevia && pestanaPrevia.id !== tabId ? pestanaPrevia.id : null;
-  sesion.rescateTimer = setTimeout(() => {
-    console.warn('[Infocivil consulta] Sin señales de vida por un buen rato: se trae la pestaña al frente por las dudas.');
-    chrome.tabs.update(tabId, { active: true }).catch(() => {});
-  }, 15000);
 
   const home = await esperarEstado(tabId, e => e.enHome, 30000, 'esperando home.seam');
   if (home.vencido) throw new Error('El SCW no respondió (no cargó la Consulta Pública).');
@@ -289,7 +282,6 @@ export function iniciarConsultas() {
       if (!msg || msg.tipo !== 'consultar') return;
       if (sesion.tabId) {
         // Consulta nueva desde la misma pantalla: se descarta la anterior.
-        if (sesion.rescateTimer) { clearTimeout(sesion.rescateTimer); sesion.rescateTimer = null; }
         chrome.tabs.remove(sesion.tabId).catch(() => {});
         sesion.tabId = sesion.cid = null;
       }
@@ -308,7 +300,6 @@ export function iniciarConsultas() {
     // La pantalla de inicio se cerró o navegó: la ventana del SCW ya no
     // hace falta.
     port.onDisconnect.addListener(() => {
-      if (sesion.rescateTimer) clearTimeout(sesion.rescateTimer);
       if (sesion.tabId) chrome.tabs.remove(sesion.tabId).catch(() => {});
     });
   });

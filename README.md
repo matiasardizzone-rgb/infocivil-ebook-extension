@@ -67,14 +67,21 @@ aparece "Ningún link público coincide con lo guardado", no lo es.
 **Estado real (confirmado contra el SCW): la búsqueda automática de
 `src/public/inicio.html` funciona de punta a punta.** Búsqueda,
 históricas, actuaciones, vuelta al formulario y "Leer como libro" — todo
-probado contra el sitio real. La pestaña del SCW ahora se abre EN SEGUNDO PLANO (sin foco): los
-arreglos que la hicieron funcionar (detectar el expediente por URL,
-tolerar la respuesta perdida del formulario) no dependían de que
-estuviera al frente — esa necesidad fue una hipótesis de una etapa
-anterior. Por las dudas, si pasan 15s sin señales de vida la trae al
-frente sola (rescate), así no se pierde la confiabilidad si el sitio real
-sí la necesita visible en algún caso. A confirmar contra el SCW real si
-el rescate llega a activarse alguna vez.
+probado contra el sitio real. La pestaña del SCW se abre CON foco: se probó en segundo plano (v0.6.0),
+y contra el sitio real terminaba apareciendo igual — el SCW parece sí
+necesitar estar en primer plano durante los saltos de navegación de
+home.seam. No vale la pena seguir insistiendo con la invisibilidad total;
+lo confirmado es que el foco vuelve al operador apenas se encuentra el
+expediente (unos segundos después de arrancar, no al final de leer
+históricas y actuaciones).
+
+**Lento (1 a 1.5 min entre históricas y actuaciones), confirmado contra
+el SCW real.** No es un cuelgue: es el costo real de navegar a
+actuacionesHistoricas.seam, esperar la lectura, volver al expediente, y
+recién ahí leer las actuaciones — todo secuencial, con viajes de ida y
+vuelta reales. Acortarlo en serio (por ejemplo, leyendo históricas y
+actuaciones en paralelo en vez de en secuencia) es una reestructuración,
+no un ajuste — queda pendiente, sin apurar.
 
 **Pendiente urgente, primera tarea de la próxima sesión — expedientes
 duplicados en Mis Expedientes.** El `cid` que usa el SCW identifica la
