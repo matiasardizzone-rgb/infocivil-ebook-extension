@@ -179,8 +179,22 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
   try {
     avisar('Buscando ' + nombre + '…');
     const r = await pedirCuandoListo(tabId, e => e.enHome,
-      { action: 'completarFormularioBusqueda', valorJurisdiccion, numero, anio }, { timeoutMs: 30000 });
-    if (!r || !r.ok) throw new Error((r && r.error) || 'No se pudo completar la Consulta Pública (la página del SCW no terminó de asentarse).');
+      { action: 'completarFormularioBusqueda', valorJurisdiccion, numero, anio }, { timeoutMs: 12000 });
+    if (!r || !r.ok) {
+      // Visto contra el sitio real: el envío puede funcionar (la página
+      // navega al expediente correcto) y perderse solo la RESPUESTA de
+      // ese mensaje, porque la navegación destruye el content script en
+      // el instante en que iba a contestar. pedirCuandoListo, al no
+      // recibir respuesta, sigue esperando 'enHome' — que ya no vuelve a
+      // ser cierto nunca, porque ya estamos en el expediente. Antes de
+      // darlo por error, nos fijamos si la página ya avanzó de verdad.
+      const chequeo = await pedir(tabId, { action: 'estadoPagina' });
+      if (!chequeo || !(chequeo.esExpediente || chequeo.linksResultados > 0)) {
+        throw new Error((r && r.error) || 'No se pudo completar la Consulta Pública (la página del SCW no terminó de asentarse).');
+      }
+      console.warn('[Infocivil consulta] El envío no confirmó respuesta, pero la página ya avanzó ' +
+        '(la búsqueda probablemente sí funcionó): url=' + chequeo.url);
+    }
     const inicio = Date.now();
     let resultadosTomados = false;
     while (true) {
