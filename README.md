@@ -76,12 +76,22 @@ expediente (unos segundos después de arrancar, no al final de leer
 históricas y actuaciones).
 
 **Lento (1 a 1.5 min entre históricas y actuaciones), confirmado contra
-el SCW real.** No es un cuelgue: es el costo real de navegar a
-actuacionesHistoricas.seam, esperar la lectura, volver al expediente, y
-recién ahí leer las actuaciones — todo secuencial, con viajes de ida y
-vuelta reales. Acortarlo en serio (por ejemplo, leyendo históricas y
-actuaciones en paralelo en vez de en secuencia) es una reestructuración,
-no un ajuste — queda pendiente, sin apurar.
+el SCW real — funciona de punta a punta, solo tarda.** No es un cuelgue:
+es el costo real de navegar a actuacionesHistoricas.seam, esperar la
+lectura, volver al expediente, y recién ahí leer las actuaciones — todo
+secuencial, con viajes de ida y vuelta reales.
+
+Idea concreta para acortarlo (del operador): reusar el mismo criterio de
+"Verificar" en Mis Expedientes (compara por id de actuación — el link
+público — contra lo ya guardado, y solo baja lo nuevo) para la búsqueda
+automática. Si se consulta un expediente que YA está guardado, comparar
+antes de descargar y traer solo las actuaciones que falten, en vez de
+volver a bajar las 29 enteras. Achica bastante las consultas REPETIDAS de
+un mismo expediente; no ayuda la primera vez (nada guardado todavía) ni
+el paso de buscar en home.seam (es navegación para conseguir sesión
+válida, no descarga — hace falta igual aunque ya se haya consultado
+antes). Toca el bucle de descarga en scw-content.js; no es un ajuste
+chico, queda pendiente.
 
 **Resuelto: expedientes duplicados en Mis Expedientes.** El `cid` del
 SCW identifica la CONSULTA, no el expediente (confirmado: 8648, 15356,
