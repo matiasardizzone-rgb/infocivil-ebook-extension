@@ -10,9 +10,21 @@ document.addEventListener('DOMContentLoaded', function () {
   var pollingUnificado = null;
 
   // Consulta sin pasar por el SCW: pantalla de inicio de la extensión.
-  document.getElementById('btnConsultar').addEventListener('click', function () {
-    chrome.tabs.create({ url: chrome.runtime.getURL('src/public/inicio.html') });
-  });
+  // Reusa una pestaña ya abierta (recargada, formulario limpio) en vez de
+  // apilar una nueva cada vez.
+  function irAConsultar() {
+    var url = chrome.runtime.getURL('src/public/inicio.html');
+    chrome.tabs.query({ url: url }, function (existentes) {
+      if (existentes && existentes.length) {
+        chrome.tabs.update(existentes[0].id, { url: url, active: true });
+        chrome.windows.update(existentes[0].windowId, { focused: true });
+      } else {
+        chrome.tabs.create({ url: url });
+      }
+      window.close();
+    });
+  }
+  document.getElementById('btnConsultar').addEventListener('click', irAConsultar);
 
   btnBiblioteca.addEventListener('click', function () {
     chrome.tabs.create({ url: chrome.runtime.getURL('src/public/biblioteca.html') });
@@ -79,8 +91,10 @@ document.addEventListener('DOMContentLoaded', function () {
     var url  = tab && tab.url || '';
 
     if (!url.includes('scw.pjn.gov.ar')) {
-      bloquear();
-      estado.textContent = 'Usá 🔎 Consultar expediente, o abrí un expediente en el Sistema de Consulta Web.';
+      // No hay nada útil que este popup pueda ofrecer acá (no es una
+      // página del SCW): en vez de mostrarlo vacío, se salta directo a la
+      // pantalla de consulta, reusando la pestaña si ya hay una abierta.
+      irAConsultar();
       return;
     }
 
