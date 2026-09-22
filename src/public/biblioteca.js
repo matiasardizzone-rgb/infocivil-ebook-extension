@@ -174,8 +174,19 @@ async function actualizarExpediente(exp, card) {
 
 document.getElementById('btnHome').addEventListener('click', () => { cargarBiblioteca(); mostrarBiblioteca(); });
 document.getElementById('expteSwitch').addEventListener('click', () => { cargarBiblioteca(); mostrarBiblioteca(); });
-document.getElementById('btnNuevaConsulta').addEventListener('click', () => {
-  chrome.tabs.create({ url: chrome.runtime.getURL('src/public/inicio.html') });
+document.getElementById('btnNuevaConsulta').addEventListener('click', async () => {
+  // Si ya hay una pestaña de consulta abierta, se vuelve a esa (recargada,
+  // lista para el próximo expediente) en vez de apilar una pestaña nueva
+  // cada vez.
+  const url = chrome.runtime.getURL('src/public/inicio.html');
+  const existentes = await chrome.tabs.query({ url });
+  if (existentes.length) {
+    const t = existentes[0];
+    await chrome.tabs.update(t.id, { url, active: true });
+    await chrome.windows.update(t.windowId, { focused: true });
+  } else {
+    chrome.tabs.create({ url });
+  }
 });
 document.getElementById('zoomSel').addEventListener('change', async function () {
   zoomManual = parseFloat(this.value);

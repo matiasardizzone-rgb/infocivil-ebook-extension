@@ -67,9 +67,14 @@ aparece "Ningún link público coincide con lo guardado", no lo es.
 **Estado real (confirmado contra el SCW): la búsqueda automática de
 `src/public/inicio.html` funciona de punta a punta.** Búsqueda,
 históricas, actuaciones, vuelta al formulario y "Leer como libro" — todo
-probado contra el sitio real. La pestaña del SCW se abre con foco (hace
-falta para que el SCW no la trate como en segundo plano) pero devuelve el
-foco al operador apenas confirma el expediente, no al final.
+probado contra el sitio real. La pestaña del SCW ahora se abre EN SEGUNDO PLANO (sin foco): los
+arreglos que la hicieron funcionar (detectar el expediente por URL,
+tolerar la respuesta perdida del formulario) no dependían de que
+estuviera al frente — esa necesidad fue una hipótesis de una etapa
+anterior. Por las dudas, si pasan 15s sin señales de vida la trae al
+frente sola (rescate), así no se pierde la confiabilidad si el sitio real
+sí la necesita visible en algún caso. A confirmar contra el SCW real si
+el rescate llega a activarse alguna vez.
 
 **Pendiente urgente, primera tarea de la próxima sesión — expedientes
 duplicados en Mis Expedientes.** El `cid` que usa el SCW identifica la
