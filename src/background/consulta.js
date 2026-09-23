@@ -27,15 +27,8 @@ const esperar = ms => new Promise(r => setTimeout(r, ms));
 // devuelve el foco al operador apenas termina de buscar, sin depender de
 // que la ventana de consulta se cierre (sigue abierta, sin foco, por si
 // hace falta para las descargas).
-// La búsqueda corre en segundo plano: el foco solo hay que devolverlo si el
-// rescate (30s sin confirmar) llegó a traer el SCW al frente. Si no, no se
-// mueve al operador de donde esté (pudo haber cambiado de pestaña mientras
-// tanto, y arrastrarlo de vuelta sería peor).
-async function devolverFoco(sesion) {
-  if (sesion.rescateTimer) { clearTimeout(sesion.rescateTimer); sesion.rescateTimer = null; }
-  if (!sesion.pestanaPrevia || !sesion.tabId) return;
-  const scw = await chrome.tabs.get(sesion.tabId).catch(() => null);
-  if (scw && scw.active) chrome.tabs.update(sesion.pestanaPrevia, { active: true }).catch(() => {});
+function devolverFoco(sesion) {
+  if (sesion.pestanaPrevia) chrome.tabs.update(sesion.pestanaPrevia, { active: true }).catch(() => {});
 }
 
 // Mensaje al content script de la pestaña; null si todavía no hay uno
@@ -212,24 +205,23 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
       .then(t => (t && t[0]) || null).catch(() => null);
 
   avisar('Conectando con el Sistema de Consulta Web…');
-  // En SEGUNDO PLANO, al lado de la pestaña de la extensión. v0.6.0 ya lo
-  // había intentado, pero con un rescate que la traía al frente a los 15s
-  // si todavía no se había confirmado el expediente — y contra el sitio
-  // real la confirmación llega recién a los 12-14s (camino de "respuesta
-  // perdida", v0.5.5): lo que se vio aparecer fue casi seguro el propio
-  // rescate, no el SCW pidiendo foco. Ahora el rescate espera 30s: solo
-  // entra en juego si la búsqueda está trabada de verdad.
+  // CON foco desde el arranque (active:true), no oculta: v0.9.0 la creaba
+  // oculta y, contra el sitio real, la paginación de actuaciones (que
+  // espera hasta 15s por página vía AJAX/RichFaces) se quedó corta —
+  // trajo 13 de 29 actuaciones. Una pestaña que nunca se mostró ni una
+  // vez parece sufrir un frenado más agresivo de Chrome que una que se
+  // mostró un momento y después pasó a segundo plano (que es lo que YA
+  // hace devolverFoco() más abajo, apenas se confirma el expediente, y
+  // con eso sí se leyeron las 29 completas en pruebas anteriores). Antes
+  // que evitar del todo que se vea la pestaña, prioridad a no perder
+  // actuaciones.
   const tab = await chrome.tabs.create({
-    url: URL_HOME, active: false,
+    url: URL_HOME, active: true,
     ...(pestanaPrevia ? { windowId: pestanaPrevia.windowId, index: pestanaPrevia.index + 1 } : {}),
   });
   const tabId = tab.id;
   sesion.tabId = tabId;
   sesion.pestanaPrevia = pestanaPrevia && pestanaPrevia.id !== tabId ? pestanaPrevia.id : null;
-  sesion.rescateTimer = setTimeout(() => {
-    console.warn('[Infocivil consulta] 30s sin confirmar el expediente: se trae la pestaña del SCW al frente por si necesita estar visible.');
-    chrome.tabs.update(tabId, { active: true }).catch(() => {});
-  }, 30000);
 
   const home = await esperarEstado(tabId, e => e.enHome, 30000, 'esperando home.seam');
   if (home.vencido) throw new Error('El SCW no respondió (no cargó la Consulta Pública).');

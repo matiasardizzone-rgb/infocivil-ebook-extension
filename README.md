@@ -67,17 +67,24 @@ aparece "Ningún link público coincide con lo guardado", no lo es.
 **Estado real (confirmado contra el SCW): la búsqueda automática de
 `src/public/inicio.html` funciona de punta a punta.** Búsqueda,
 históricas, actuaciones, vuelta al formulario y "Leer como libro" — todo
-probado contra el sitio real. **v0.9.0 — la búsqueda corre oculta**: la pestaña del SCW se abre en
-segundo plano, al lado de la de la extensión, y el operador nunca sale
-del panel de consulta. (v0.6.0 ya lo había intentado, pero con un rescate
-a los 15s que la traía al frente, y contra el sitio real la confirmación
-del expediente llega recién a los 12-14s: lo que se vio aparecer fue casi
-seguro el propio rescate, no el SCW pidiendo foco.) El rescate ahora
-espera 30s, y el foco solo se devuelve si llegó a dispararse. La pestaña
-de origen se toma del propio mensaje (sender.tab), no de "la ventana
-enfocada": con la consola del service worker abierta, esa consulta podía
-devolver DevTools y el foco no volvía nunca. **A confirmar contra el SCW
-real: que la búsqueda en segundo plano complete sin el rescate.**
+probado contra el sitio real. **Revertido en v0.9.1: la pestaña vuelve a abrirse CON foco desde el
+arranque.** v0.9.0 la creaba oculta (active:false) — contra el SCW real
+trajo 13 de 29 actuaciones, con aviso de paginación incompleta. Una
+pestaña que nunca se mostró ni una vez parece sufrir un frenado más
+agresivo de Chrome que una que se mostró un momento y después pasó a
+segundo plano (que es justo lo que hace `devolverFoco()`, sin cambios,
+apenas se confirma el expediente). Entre evitar que se vea la pestaña un
+momento y arriesgar actuaciones faltantes, gana lo segundo: se vuelve al
+modelo de v0.5.4-v0.8.1, que sí trajo las 29 completas.
+
+Límite de esta sesión: ningún simulador usado hasta v0.9.0 ejercitaba la
+paginación de verdad (todos tenían una sola página de actuaciones) — el
+bug nunca se pudo haber visto en las pruebas. Se armó uno con paginación
+real (3 páginas, patrón `<li>` + onclick con RichFaces) para esta vuelta,
+que confirma que el mecanismo de lectura es correcto con foco. Lo que
+ese simulador NO puede confirmar es la hipótesis del frenado en
+segundo plano — el Chromium de estas pruebas probablemente no lo
+reproduce igual que Chrome de escritorio real.
 
 **Históricas (v0.9.0):** desde 2019 los expedientes no tienen históricas
 (nacieron digitales, dato del operador) — para esos no se visita
