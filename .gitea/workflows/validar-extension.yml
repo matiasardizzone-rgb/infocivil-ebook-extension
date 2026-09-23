@@ -1,0 +1,57 @@
+name: Validar extension Chrome
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validar-manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar codigo del repositorio
+        uses: actions/checkout@v4
+
+      - name: Revisar archivos de la extension
+        run: |
+          set -eu
+
+          test -f manifest.json
+
+          node <<'NODE'
+          const fs = require('fs');
+
+          const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
+          const requiredFiles = new Set();
+
+          function requireFile(label, filePath) {
+            if (!filePath) return;
+            requiredFiles.add(filePath);
+            if (!fs.existsSync(filePath)) {
+              throw new Error(`${label} no existe: ${filePath}`);
+            }
+          }
+
+          if (manifest.manifest_version !== 3) {
+            throw new Error(`manifest_version esperado: 3, recibido: ${manifest.manifest_version}`);
+          }
+
+          if (!manifest.name || !manifest.version) {
+            throw new Error('El manifest debe declarar name y version.');
+          }
+
+          requireFile('service_worker', manifest.background && manifest.background.service_worker);
+          requireFile('default_popup', manifest.action && manifest.action.default_popup);
+
+          for (const [size, iconPath] of Object.entries(manifest.icons || {})) {
+            requireFile(`icono ${size}`, iconPath);
+          }
+
+          for (const script of manifest.content_scripts || []) {
+            for (const jsPath of script.js || []) {
+              requireFile('content_script', jsPath);
+            }
+          }
+
+          console.log(`Extension: ${manifest.name} ${manifest.version}`);
+          console.log(`Archivos verificados: ${Array.from(requiredFiles).sort().join(', ')}`);
+          NODE
