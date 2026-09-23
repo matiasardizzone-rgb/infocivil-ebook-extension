@@ -2,10 +2,19 @@
 // extensión (src/public/inicio.html), sin que el operador pase por el SCW.
 //
 // El SCW sigue siendo la fuente (no tiene otra vía pública): se abre en una
-// ventana minimizada, se completa la Consulta Pública, se leen las
-// actuaciones (incluidas las históricas) y la ventana queda abierta,
-// minimizada, mientras la pantalla de inicio la necesite para descargar.
-// Se cierra sola cuando se cierra o se va de esa pantalla.
+// PESTAÑA con foco, dentro de la ventana del operador, y se completa la
+// Consulta Pública. Se queda con foco durante toda la lectura de
+// históricas y actuaciones — no solo la búsqueda inicial —, porque esa
+// parte depende de que RichFaces aplique cambios al DOM, y Chrome
+// suspende el ciclo de repintado (requestAnimationFrame) en pestañas
+// ocultas: se probó devolver el foco antes (apenas confirmado el
+// expediente) y, contra el sitio real, la paginación de actuaciones se
+// cortaba siempre en la página 2, sin importar cuánto margen de espera se
+// le diera. Recién al terminar todo eso el foco vuelve al operador; la
+// pestaña del SCW queda abierta, en segundo plano, mientras la pantalla
+// de inicio la necesite para descargar (eso sí es solo fetch() de PDFs,
+// que no depende de la visibilidad). Se cierra sola cuando se cierra o se
+// va de esa pantalla.
 //
 // Comunicación con inicio.html por un puerto (chrome.runtime.connect con
 // nombre 'consulta'): mantiene vivo el service worker durante la consulta y
@@ -208,16 +217,10 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
       .then(t => (t && t[0]) || null).catch(() => null);
 
   avisar('Conectando con el Sistema de Consulta Web…');
-  // Oculta desde el arranque otra vez: v0.9.1 la mostraba un momento
-  // antes de pasarla a segundo plano, pensando que "nunca mostrada" era
-  // el problema — pero confirmado contra el sitio real, se cortaba en la
-  // página 2 de actuaciones IGUAL. La causa real no era la visibilidad al
-  // crearla: es que en segundo plano el vaivén con el SCW es más lento, y
-  // el margen de espera de la paginación no alcanzaba (arreglado en
-  // scw-content.js: 8s/15s → 25s/45s por página). Con margen de sobra, no
-  // hay motivo para mostrarla ni un instante.
+  // Con foco (active:true), y así se queda hasta el final — ver el porqué
+  // en el comentario junto a devolverFoco() más abajo.
   const tab = await chrome.tabs.create({
-    url: URL_HOME, active: false,
+    url: URL_HOME, active: true,
     ...(pestanaPrevia ? { windowId: pestanaPrevia.windowId, index: pestanaPrevia.index + 1 } : {}),
   });
   const tabId = tab.id;
@@ -327,16 +330,22 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
   }
   sesion.cid = cid;
 
-  // Ya se confirmó el expediente: devolver el foco ACÁ, no al final. Lo
-  // que queda (históricas + actuaciones) es navegación propia de la
-  // pestaña y fetch() de PDFs — nada de eso depende de que esté a la
-  // vista. Antes se esperaba a que todo terminara para devolver el foco,
-  // y el operador se quedaba mirando la pestaña del SCW de punta a punta.
-  devolverFoco(sesion);
-
   // Históricas: se leen navegando la misma pestaña a su página (el
   // content script las lee solo y las deja en storage) y se vuelve.
   const { vuelta, act } = await leerHistoricasYActuaciones(tabId, cid, avisar, anio);
+
+  // Devolver el foco ACÁ, al final, no apenas se confirma el expediente.
+  // Se probó devolverlo antes (v0.5.4-v0.9.2): históricas y actuaciones
+  // quedaban leyéndose con la pestaña ya en segundo plano, y contra el
+  // sitio real la paginación se cortaba siempre en la página 2 — no por
+  // lenta, ni más tiempo de espera lo arregló (25s/45s tampoco). Todo
+  // apunta a que Chrome SUSPENDE del todo el ciclo de repintado
+  // (requestAnimationFrame) en pestañas ocultas, no solo lo frena — y si
+  // RichFaces aplica sus actualizaciones del DOM a través de eso, la
+  // respuesta del SCW puede llegar bien y nunca reflejarse en la página
+  // mientras esté oculta. La pestaña se ve durante toda la búsqueda; a
+  // cambio, no se pierden actuaciones.
+  devolverFoco(sesion);
 
   return {
     cid, tabId, aviso,
@@ -368,45 +377,55 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
 // navegación delicado de por medio esta vez — la pestaña ya está en el
 // expediente correcto. null si la pestaña ya no sirve (cerrada, navegada
 // a otra cosa): el llamador decide si cae a la búsqueda completa.
-async function abrirVinculadoEnPestanaExistente(tabId, expedienteTexto, avisar) {
+async function abrirVinculadoEnPestanaExistente(tabId, expedienteTexto, avisar, pestanaOrigen) {
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab) return null;
   const estadoPrevio = await pedir(tabId, { action: 'estadoPagina' });
   if (!estadoPrevio || !estadoPrevio.esExpediente) return null;
   const cidPrincipal = estadoPrevio.cid;
 
-  avisar('Abriendo ' + expedienteTexto + '…');
-  let r = await pedir(tabId, { action: 'abrirVinculado', expediente: expedienteTexto });
-  if (!r) {
-    // Mismo patrón que en consultar(): la respuesta se puede perder por la
-    // navegación aunque el clic haya funcionado de verdad.
-    await esperar(800);
-    const chequeo = await pedir(tabId, { action: 'estadoPagina' });
-    if (chequeo && chequeo.esExpediente && chequeo.cid && chequeo.cid !== cidPrincipal) {
-      r = { ok: true, cid: chequeo.cid };
-    } else {
-      await esperar(1000);
-      r = await pedir(tabId, { action: 'abrirVinculado', expediente: expedienteTexto });
+  // Traer al frente: esta pestaña está en segundo plano desde que terminó
+  // la búsqueda original, y lo que sigue (abrir la solapa, leer históricas
+  // y paginar actuaciones) depende de que RichFaces aplique cambios al
+  // DOM — algo que Chrome no hace en pestañas ocultas (mismo motivo que en
+  // consultar(), ver su comentario junto a devolverFoco()).
+  await chrome.tabs.update(tabId, { active: true }).catch(() => {});
+  try {
+    avisar('Abriendo ' + expedienteTexto + '…');
+    let r = await pedir(tabId, { action: 'abrirVinculado', expediente: expedienteTexto });
+    if (!r) {
+      // Mismo patrón que en consultar(): la respuesta se puede perder por la
+      // navegación aunque el clic haya funcionado de verdad.
+      await esperar(800);
+      const chequeo = await pedir(tabId, { action: 'estadoPagina' });
+      if (chequeo && chequeo.esExpediente && chequeo.cid && chequeo.cid !== cidPrincipal) {
+        r = { ok: true, cid: chequeo.cid };
+      } else {
+        await esperar(1000);
+        r = await pedir(tabId, { action: 'abrirVinculado', expediente: expedienteTexto });
+      }
     }
-  }
-  if (!r || !r.ok || !r.cid) {
-    if (r && r.error) throw new Error(r.error); // "no encontrado en Vinculados": no tiene sentido reintentar con una búsqueda nueva, va a dar el mismo resultado
-    return null; // sin respuesta ni motivo claro: que decida el llamador
-  }
+    if (!r || !r.ok || !r.cid) {
+      if (r && r.error) throw new Error(r.error); // "no encontrado en Vinculados": no tiene sentido reintentar con una búsqueda nueva, va a dar el mismo resultado
+      return null; // sin respuesta ni motivo claro: que decida el llamador
+    }
 
-  const cid = r.cid;
-  const { vuelta, act } = await leerHistoricasYActuaciones(tabId, cid, avisar, ((expedienteTexto || '').match(/\/(\d{4})\//) || [])[1]);
-  return {
-    cid, tabId, aviso: '', nombre: expedienteTexto,
-    caratula: vuelta.caratula || act.tituloExpediente || '',
-    folderName: act.folderName,
-    tituloExpediente: act.tituloExpediente,
-    actuaciones: act.actuaciones || [],
-    archivos: act.archivos || [],
-    historicasFaltantes: !!act.historicasFaltantes,
-    paginacionIncompleta: !!act.paginacionIncompleta,
-    vinculados: [],
-  };
+    const cid = r.cid;
+    const { vuelta, act } = await leerHistoricasYActuaciones(tabId, cid, avisar, ((expedienteTexto || '').match(/\/(\d{4})\//) || [])[1]);
+    return {
+      cid, tabId, aviso: '', nombre: expedienteTexto,
+      caratula: vuelta.caratula || act.tituloExpediente || '',
+      folderName: act.folderName,
+      tituloExpediente: act.tituloExpediente,
+      actuaciones: act.actuaciones || [],
+      archivos: act.archivos || [],
+      historicasFaltantes: !!act.historicasFaltantes,
+      paginacionIncompleta: !!act.paginacionIncompleta,
+      vinculados: [],
+    };
+  } finally {
+    if (pestanaOrigen) chrome.tabs.update(pestanaOrigen.id, { active: true }).catch(() => {});
+  }
 }
 
 export function iniciarAperturaVinculados() {
@@ -417,7 +436,7 @@ export function iniciarAperturaVinculados() {
         if (msg.tabIdExistente && msg.expedienteVinculado) {
           try {
             const res = await abrirVinculadoEnPestanaExistente(
-              msg.tabIdExistente, msg.expedienteVinculado, () => {});
+              msg.tabIdExistente, msg.expedienteVinculado, () => {}, sender && sender.tab);
             if (res) { sendResponse({ tipo: 'listo', ...res }); return; }
           } catch (err) {
             // Vinculado genuinamente no encontrado ahí: no tiene sentido

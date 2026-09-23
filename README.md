@@ -69,31 +69,36 @@ aparece "Ningún link público coincide con lo guardado", no lo es.
 históricas, actuaciones, vuelta al formulario y "Leer como libro" — todo
 probado contra el sitio real.
 
-**v0.9.2 — oculta desde el arranque, con el margen de espera correcto.**
-Historial de este ida y vuelta:
-- v0.9.0 la creaba oculta (`active:false`) — contra el SCW real trajo 13
-  de 29 actuaciones, con aviso de paginación incompleta.
-- v0.9.1 probó mostrarla un momento antes de pasarla a segundo plano (la
-  hipótesis: "nunca mostrada" era la causa) — el operador confirmó que el
-  problema seguía igual, se cortaba en la página 2 igual. Hipótesis
-  descartada.
-- El problema real: en segundo plano el vaivén con el SCW es más lento, y
-  el margen de la paginación (8s por página, 15s de reintento) no
-  alcanzaba. Con margen de sobra (25s/45s por página, 5 min para toda la
-  lectura de actuaciones — ver `scw-content.js`/`consulta.js`) no hay
-  motivo para mostrar la pestaña ni un instante: vuelve a crearse oculta.
+**v0.9.3 — con foco durante TODA la búsqueda, no solo al principio.**
+Historial completo de este ida y vuelta, porque importa para no repetirlo:
+- v0.9.0: pestaña oculta desde el arranque → 13 de 29 actuaciones.
+- v0.9.1: mostrada un momento, luego oculta (hipótesis: "nunca mostrada"
+  era la causa) → el operador confirmó que seguía igual, cortaba en la
+  página 2 igual. Hipótesis descartada.
+- v0.9.2: de vuelta oculta, pero con mucho más margen de espera por
+  página (25s/45s en vez de 8s/15s) → el operador confirmó que **seguía
+  cortando en la página 2**, con el mismo mensaje de siempre. Esto
+  descarta que fuera cuestión de tiempo: más margen no cambió nada.
+- Diagnóstico: no es que sea más lento en segundo plano, es que
+  probablemente Chrome SUSPENDE del todo el ciclo de repintado
+  (`requestAnimationFrame`) en pestañas ocultas, no solo lo frena. Si
+  RichFaces aplica sus actualizaciones del DOM a través de eso, la
+  respuesta del SCW puede llegar bien y nunca reflejarse en la página
+  mientras esté oculta — por eso ningún margen de espera, por generoso
+  que sea, lo soluciona.
+- v0.9.3: la pestaña se queda CON foco durante toda la búsqueda —
+  incluidas históricas y actuaciones, no solo el tramo inicial de
+  home.seam — y el foco recién vuelve al operador cuando todo terminó.
+  Mismo arreglo aplicado a abrir un vinculado desde la pantalla de
+  resultados (v0.8.1), que tenía el mismo problema sin que nadie lo
+  hubiera notado: nunca traía la pestaña al frente.
 
-Límite de esta sesión: ningún simulador usado hasta v0.9.0 ejercitaba la
-paginación de verdad (todos tenían una sola página de actuaciones) — el
-bug nunca se pudo haber visto en las pruebas. Se armó uno con paginación
-real (3 páginas, patrón `<li>` + onclick con RichFaces) para esta vuelta,
-que confirma que el mecanismo de lectura es correcto. El simulador NO
-puede reproducir el frenado real de Chrome en pestañas ocultas (headless
-probablemente no lo hace igual que un Chrome de escritorio) — los
-márgenes nuevos se calibraron por lógica a partir del caso real
-reportado (se cortaba en la página 2 con 8s), no midiendo el frenado
-real. **A confirmar contra el SCW real que alcance con este margen para
-expedientes grandes.**
+**Se abandona la idea de una búsqueda completamente oculta.** El
+operador va a ver la pestaña del SCW durante toda la consulta (hasta que
+aparece el menú de resultados) — no hay forma de evitarlo sin arriesgar
+actuaciones faltantes, dado este límite de Chrome con pestañas ocultas y
+contenido armado por RichFaces/AJAX. **A confirmar contra el SCW real
+que esta vez sí traiga el expediente completo.**
 
 **Históricas (v0.9.0):** desde 2019 los expedientes no tienen históricas
 (nacieron digitales, dato del operador) — para esos no se visita
