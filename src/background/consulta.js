@@ -174,7 +174,10 @@ async function leerHistoricasYActuaciones(tabId, cid, avisar, anio) {
   }
 
   avisar('Leyendo actuaciones…');
-  const act = await pedirCuandoListo(tabId, e => e.esExpediente, { action: 'obtenerActuaciones' }, { timeoutMs: 25000 });
+  // Generoso a propósito: adentro puede haber varias páginas, cada una
+  // con hasta 70s de margen (25s + 45s de reintento, ver scw-content.js)
+  // porque esta pestaña corre en segundo plano casi siempre.
+  const act = await pedirCuandoListo(tabId, e => e.esExpediente, { action: 'obtenerActuaciones' }, { timeoutMs: 300000 });
   if (!act || !act.ok) throw new Error((act && act.error) || 'No se pudieron leer las actuaciones (la página del expediente no terminó de asentarse).');
 
   return { vuelta, act };
@@ -205,18 +208,16 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
       .then(t => (t && t[0]) || null).catch(() => null);
 
   avisar('Conectando con el Sistema de Consulta Web…');
-  // CON foco desde el arranque (active:true), no oculta: v0.9.0 la creaba
-  // oculta y, contra el sitio real, la paginación de actuaciones (que
-  // espera hasta 15s por página vía AJAX/RichFaces) se quedó corta —
-  // trajo 13 de 29 actuaciones. Una pestaña que nunca se mostró ni una
-  // vez parece sufrir un frenado más agresivo de Chrome que una que se
-  // mostró un momento y después pasó a segundo plano (que es lo que YA
-  // hace devolverFoco() más abajo, apenas se confirma el expediente, y
-  // con eso sí se leyeron las 29 completas en pruebas anteriores). Antes
-  // que evitar del todo que se vea la pestaña, prioridad a no perder
-  // actuaciones.
+  // Oculta desde el arranque otra vez: v0.9.1 la mostraba un momento
+  // antes de pasarla a segundo plano, pensando que "nunca mostrada" era
+  // el problema — pero confirmado contra el sitio real, se cortaba en la
+  // página 2 de actuaciones IGUAL. La causa real no era la visibilidad al
+  // crearla: es que en segundo plano el vaivén con el SCW es más lento, y
+  // el margen de espera de la paginación no alcanzaba (arreglado en
+  // scw-content.js: 8s/15s → 25s/45s por página). Con margen de sobra, no
+  // hay motivo para mostrarla ni un instante.
   const tab = await chrome.tabs.create({
-    url: URL_HOME, active: true,
+    url: URL_HOME, active: false,
     ...(pestanaPrevia ? { windowId: pestanaPrevia.windowId, index: pestanaPrevia.index + 1 } : {}),
   });
   const tabId = tab.id;

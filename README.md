@@ -67,24 +67,33 @@ aparece "Ningún link público coincide con lo guardado", no lo es.
 **Estado real (confirmado contra el SCW): la búsqueda automática de
 `src/public/inicio.html` funciona de punta a punta.** Búsqueda,
 históricas, actuaciones, vuelta al formulario y "Leer como libro" — todo
-probado contra el sitio real. **Revertido en v0.9.1: la pestaña vuelve a abrirse CON foco desde el
-arranque.** v0.9.0 la creaba oculta (active:false) — contra el SCW real
-trajo 13 de 29 actuaciones, con aviso de paginación incompleta. Una
-pestaña que nunca se mostró ni una vez parece sufrir un frenado más
-agresivo de Chrome que una que se mostró un momento y después pasó a
-segundo plano (que es justo lo que hace `devolverFoco()`, sin cambios,
-apenas se confirma el expediente). Entre evitar que se vea la pestaña un
-momento y arriesgar actuaciones faltantes, gana lo segundo: se vuelve al
-modelo de v0.5.4-v0.8.1, que sí trajo las 29 completas.
+probado contra el sitio real.
+
+**v0.9.2 — oculta desde el arranque, con el margen de espera correcto.**
+Historial de este ida y vuelta:
+- v0.9.0 la creaba oculta (`active:false`) — contra el SCW real trajo 13
+  de 29 actuaciones, con aviso de paginación incompleta.
+- v0.9.1 probó mostrarla un momento antes de pasarla a segundo plano (la
+  hipótesis: "nunca mostrada" era la causa) — el operador confirmó que el
+  problema seguía igual, se cortaba en la página 2 igual. Hipótesis
+  descartada.
+- El problema real: en segundo plano el vaivén con el SCW es más lento, y
+  el margen de la paginación (8s por página, 15s de reintento) no
+  alcanzaba. Con margen de sobra (25s/45s por página, 5 min para toda la
+  lectura de actuaciones — ver `scw-content.js`/`consulta.js`) no hay
+  motivo para mostrar la pestaña ni un instante: vuelve a crearse oculta.
 
 Límite de esta sesión: ningún simulador usado hasta v0.9.0 ejercitaba la
 paginación de verdad (todos tenían una sola página de actuaciones) — el
 bug nunca se pudo haber visto en las pruebas. Se armó uno con paginación
 real (3 páginas, patrón `<li>` + onclick con RichFaces) para esta vuelta,
-que confirma que el mecanismo de lectura es correcto con foco. Lo que
-ese simulador NO puede confirmar es la hipótesis del frenado en
-segundo plano — el Chromium de estas pruebas probablemente no lo
-reproduce igual que Chrome de escritorio real.
+que confirma que el mecanismo de lectura es correcto. El simulador NO
+puede reproducir el frenado real de Chrome en pestañas ocultas (headless
+probablemente no lo hace igual que un Chrome de escritorio) — los
+márgenes nuevos se calibraron por lógica a partir del caso real
+reportado (se cortaba en la página 2 con 8s), no midiendo el frenado
+real. **A confirmar contra el SCW real que alcance con este margen para
+expedientes grandes.**
 
 **Históricas (v0.9.0):** desde 2019 los expedientes no tienen históricas
 (nacieron digitales, dato del operador) — para esos no se visita

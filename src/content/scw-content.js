@@ -908,14 +908,21 @@ init();
       if(!oc){console.log('[PJN] Fin actuales. Total:',r.length);break;}
       const h=obtenerHtmlTabla();
       await ejecutarEnPaginaViaBg(oc);
-      let cambio = await esperarCambioDOM(h,8000);
+      // 25s, no 8s: esta pestaña corre en segundo plano casi siempre (la
+      // búsqueda automática la manda ahí apenas confirma el expediente,
+      // para no tener al operador mirándola) — y ahí Chrome hace más
+      // lento el vaivén con el SCW. Confirmado contra el sitio real: con
+      // 8s, un expediente de varias páginas se cortaba siempre en la
+      // página 2. Como de todas formas nadie está esperando esto en
+      // pantalla, el costo de ser más paciente es bajo.
+      let cambio = await esperarCambioDOM(h,25000);
       if(!cambio){
         // Puede ser una respuesta lenta puntual de RichFaces, no
         // necesariamente el final real de la paginación — reintentamos una
         // vez con más margen antes de cortar y avisar que quedó incompleta.
         console.warn('[PJN] Timeout pág',n+1,'— reintentando una vez...');
         await ejecutarEnPaginaViaBg(oc);
-        cambio = await esperarCambioDOM(h,15000);
+        cambio = await esperarCambioDOM(h,45000);
         if(!cambio){
           console.warn('[PJN] Timeout definitivo en pág',n+1,'— paginación quedó incompleta.');
           ultimaPaginacionCompleta = false;
@@ -968,7 +975,7 @@ init();
     if(obtenerPaginaActual()===1)return;
     for(const li of document.querySelectorAll('.pagination li')){
       const a=li.querySelector('a');const o=a&&a.getAttribute('onclick');
-      if(li.textContent.trim()==='1'&&o&&o.includes('RichFaces')){const h=obtenerHtmlTabla();await ejecutarEnPaginaViaBg(o);await esperarCambioDOM(h,6000);return;}
+      if(li.textContent.trim()==='1'&&o&&o.includes('RichFaces')){const h=obtenerHtmlTabla();await ejecutarEnPaginaViaBg(o);await esperarCambioDOM(h,15000);return;}
     }
   }
   function ejecutarEnPaginaViaBg(c){return new Promise(r=>{chrome.runtime.sendMessage({action:'runInPageWorld',code:c},()=>setTimeout(r,200));});}
