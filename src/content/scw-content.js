@@ -1137,6 +1137,19 @@ init();
     const clave = claveExpediente(expediente);
     if (!clave) throw new Error('No se entiende el expediente "' + expediente + '".');
 
+    // La solapa puede no estar abierta: si esta pestaña navegó de vuelta
+    // desde actuacionesHistoricas.seam después de haberla leído la primera
+    // vez (para leer históricas, por ejemplo), la vuelta recarga la
+    // página entera y la borra — no alcanza con haberla abierto una vez
+    // antes en la vida de esta pestaña.
+    if (!document.querySelector(SELECTOR_TABLA_VINCULADOS + ' tbody tr')) {
+      const leido = await leerVinculadosDOM();
+      if (leido.estado !== 'ok') {
+        throw new Error('No se encontró el vinculado ' + expediente +
+          ' (no se pudo abrir la solapa "Vinculados": ' + leido.estado + ').');
+      }
+    }
+
     const filas = Array.from(document.querySelectorAll(SELECTOR_TABLA_VINCULADOS + ' tbody tr'));
     let objetivo = null;
     for (const fila of filas) {

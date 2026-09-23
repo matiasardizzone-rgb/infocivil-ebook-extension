@@ -192,7 +192,13 @@ function abrirVinculadoDesdeResultado(boton, expedienteTexto) {
   // progreso en vivo, y es más robusto para despertar el service worker
   // si lleva un rato inactivo (ver el comentario en
   // iniciarAperturaVinculados, background/consulta.js).
-  chrome.runtime.sendMessage({ action: 'consultarVinculado', valorJurisdiccion, ...partes }, resp => {
+  chrome.runtime.sendMessage({
+    action: 'consultarVinculado', valorJurisdiccion, ...partes,
+    // Si la pestaña del expediente actual sigue abierta, se actúa directo
+    // sobre ella (sin pasar por el SCW de nuevo, sin foco en ningún
+    // momento); si ya no sirve, el fondo hace una búsqueda completa igual.
+    tabIdExistente: exp && exp.tabId, expedienteVinculado: expedienteTexto,
+  }, resp => {
     bloquearAcciones(false);
     if (chrome.runtime.lastError) {
       estado('Se perdió la conexión con la extensión. Probá de nuevo.', 'error');

@@ -142,6 +142,29 @@ async function esperarStorage(clave, timeoutMs) {
   return { ok: false, error: 'tiempo agotado' };
 }
 
+// Históricas + actuaciones sobre un expediente YA confirmado (cid propio):
+// la parte de consultar() que no depende de cómo se llegó hasta acá.
+// Reusada tanto por la búsqueda normal como por abrir un vinculado sobre
+// una pestaña que ya estaba en el expediente.
+async function leerHistoricasYActuaciones(tabId, cid, avisar) {
+  avisar('Leyendo actuaciones históricas…');
+  const clave = 'pjnHistoricas_' + cid;
+  await chrome.storage.local.remove([clave, 'pjnHistoricasResult']);
+  await chrome.tabs.update(tabId, { url: urlHistoricas(cid) });
+  const hist = await esperarStorage(clave, 60000);
+  if (!hist.ok) console.warn('[Infocivil consulta] Históricas no leídas:', hist.error);
+
+  await chrome.tabs.update(tabId, { url: urlExpediente(cid) });
+  const vuelta = await esperarEstado(tabId, e => e.esExpediente, 30000, 'volviendo al expediente tras históricas');
+  if (vuelta.vencido) throw new Error('No se pudo volver al expediente después de leer las históricas.');
+
+  avisar('Leyendo actuaciones…');
+  const act = await pedirCuandoListo(tabId, e => e.esExpediente, { action: 'obtenerActuaciones' }, { timeoutMs: 25000 });
+  if (!act || !act.ok) throw new Error((act && act.error) || 'No se pudieron leer las actuaciones (la página del expediente no terminó de asentarse).');
+
+  return { vuelta, act };
+}
+
 async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, sesion, avisar) {
   // Se reasigna más abajo si termina abriendo un incidente en vez del
   // principal (nombre del PRINCIPAL hasta ese punto — los mensajes de
@@ -286,20 +309,7 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
 
   // Históricas: se leen navegando la misma pestaña a su página (el
   // content script las lee solo y las deja en storage) y se vuelve.
-  avisar('Leyendo actuaciones históricas…');
-  const clave = 'pjnHistoricas_' + cid;
-  await chrome.storage.local.remove([clave, 'pjnHistoricasResult']);
-  await chrome.tabs.update(tabId, { url: urlHistoricas(cid) });
-  const hist = await esperarStorage(clave, 60000);
-  if (!hist.ok) console.warn('[Infocivil consulta] Históricas no leídas:', hist.error);
-
-  await chrome.tabs.update(tabId, { url: urlExpediente(cid) });
-  const vuelta = await esperarEstado(tabId, e => e.esExpediente, 30000, 'volviendo al expediente tras históricas');
-  if (vuelta.vencido) throw new Error('No se pudo volver al expediente después de leer las históricas.');
-
-  avisar('Leyendo actuaciones…');
-  const act = await pedirCuandoListo(tabId, e => e.esExpediente, { action: 'obtenerActuaciones' }, { timeoutMs: 25000 });
-  if (!act || !act.ok) throw new Error((act && act.error) || 'No se pudieron leer las actuaciones (la página del expediente no terminó de asentarse).');
+  const { vuelta, act } = await leerHistoricasYActuaciones(tabId, cid, avisar);
 
   return {
     cid, tabId, aviso,
@@ -324,17 +334,82 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
 // mecanismo estándar para justamente ese caso (despertarlo bajo demanda),
 // a costa de no tener mensajes de 'etapa' en vivo por este camino — la
 // pantalla ya no los necesita, solo el resultado final.
+// Abrir un vinculado directo sobre la pestaña del expediente PRINCIPAL,
+// si esa pestaña sigue abierta (queda abierta en segundo plano después de
+// cada búsqueda, justamente para esto). No pasa por home.seam de nuevo:
+// nada de foco en ningún momento, porque no hay ningún salto de
+// navegación delicado de por medio esta vez — la pestaña ya está en el
+// expediente correcto. null si la pestaña ya no sirve (cerrada, navegada
+// a otra cosa): el llamador decide si cae a la búsqueda completa.
+async function abrirVinculadoEnPestanaExistente(tabId, expedienteTexto, avisar) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab) return null;
+  const estadoPrevio = await pedir(tabId, { action: 'estadoPagina' });
+  if (!estadoPrevio || !estadoPrevio.esExpediente) return null;
+  const cidPrincipal = estadoPrevio.cid;
+
+  avisar('Abriendo ' + expedienteTexto + '…');
+  let r = await pedir(tabId, { action: 'abrirVinculado', expediente: expedienteTexto });
+  if (!r) {
+    // Mismo patrón que en consultar(): la respuesta se puede perder por la
+    // navegación aunque el clic haya funcionado de verdad.
+    await esperar(800);
+    const chequeo = await pedir(tabId, { action: 'estadoPagina' });
+    if (chequeo && chequeo.esExpediente && chequeo.cid && chequeo.cid !== cidPrincipal) {
+      r = { ok: true, cid: chequeo.cid };
+    } else {
+      await esperar(1000);
+      r = await pedir(tabId, { action: 'abrirVinculado', expediente: expedienteTexto });
+    }
+  }
+  if (!r || !r.ok || !r.cid) {
+    if (r && r.error) throw new Error(r.error); // "no encontrado en Vinculados": no tiene sentido reintentar con una búsqueda nueva, va a dar el mismo resultado
+    return null; // sin respuesta ni motivo claro: que decida el llamador
+  }
+
+  const cid = r.cid;
+  const { vuelta, act } = await leerHistoricasYActuaciones(tabId, cid, avisar);
+  return {
+    cid, tabId, aviso: '', nombre: expedienteTexto,
+    caratula: vuelta.caratula || act.tituloExpediente || '',
+    folderName: act.folderName,
+    tituloExpediente: act.tituloExpediente,
+    actuaciones: act.actuaciones || [],
+    archivos: act.archivos || [],
+    historicasFaltantes: !!act.historicasFaltantes,
+    paginacionIncompleta: !!act.paginacionIncompleta,
+    vinculados: [],
+  };
+}
+
 export function iniciarAperturaVinculados() {
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg || msg.action !== 'consultarVinculado') return;
-    const sesion = {};
     (async () => {
       try {
-        const res = await consultar(msg, sesion, () => {});
-        sendResponse({ tipo: 'listo', ...res });
+        if (msg.tabIdExistente && msg.expedienteVinculado) {
+          try {
+            const res = await abrirVinculadoEnPestanaExistente(
+              msg.tabIdExistente, msg.expedienteVinculado, () => {});
+            if (res) { sendResponse({ tipo: 'listo', ...res }); return; }
+          } catch (err) {
+            // Vinculado genuinamente no encontrado ahí: no tiene sentido
+            // repetir con una búsqueda nueva, va a dar lo mismo.
+            sendResponse({ tipo: 'error', texto: err.message || String(err) });
+            return;
+          }
+          console.warn('[Infocivil consulta] La pestaña existente ya no sirve para abrir el vinculado; se busca de nuevo desde cero.');
+        }
+        const sesion = {};
+        try {
+          const res = await consultar(msg, sesion, () => {});
+          sendResponse({ tipo: 'listo', ...res });
+        } catch (err) {
+          if (sesion.tabId) chrome.tabs.remove(sesion.tabId).catch(() => {});
+          throw err;
+        }
       } catch (err) {
         console.warn('[Infocivil consulta]', err);
-        if (sesion.tabId) chrome.tabs.remove(sesion.tabId).catch(() => {});
         sendResponse({ tipo: 'error', texto: err.message || String(err) });
       }
     })();

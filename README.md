@@ -146,6 +146,20 @@ Probado con un vinculado real: lista visible en pantalla, "Abrir" desde
 el botón, pedido directo desde el formulario con el campo Incidente, y
 caída correcta al principal cuando el incidente no existe.
 
+**v0.8.1 — abrir un vinculado desde la pantalla de resultados ya no pasa
+por el SCW en absoluto** (ni una pestaña nueva, ni foco en ningún
+momento): en vez de rehacer la búsqueda completa desde `home.seam`
+(que sí necesita foco, por los saltos de navegación), actúa directo
+sobre la pestaña del expediente PRINCIPAL, que sigue abierta en segundo
+plano desde la búsqueda inicial. Solo si esa pestaña ya no sirve (se
+cerró, por ejemplo) cae a la búsqueda completa como red de seguridad.
+
+En el camino se encontró y arregló otro bug: la vuelta desde
+`actuacionesHistoricas.seam` recarga la página entera, y con ella se
+pierde la solapa "Vinculados" ya abierta durante la búsqueda inicial —
+`abrirVinculadoDOM` ahora la reabre sola si hace falta, en vez de asumir
+que ya está abierta.
+
 **Límite conocido:** en Chrome 109 el service worker se corta a los 5
 minutos aunque esté trabajando; una consulta normal tarda mucho menos, pero
 un expediente enorme podría no llegar. Desde Chrome 110 no pasa.
