@@ -673,11 +673,22 @@ function crc32(d) {
 
 // ─────────────────────────── ARRANQUE ───────────────────────────
 cargarBiblioteca();
-mostrarBiblioteca();
 
 // biblioteca.html?abrir=<cid>: la pantalla de inicio llega acá con "Leer
-// como libro" después de guardar el expediente; se abre directo en el lector.
-(function () {
-  const cidAbrir = new URLSearchParams(location.search).get('abrir');
-  if (cidAbrir) abrirExpediente(cidAbrir);
-})();
+// como libro" después de guardar el expediente; se abre directo en el
+// lector, SIN pasar por "Mis expedientes" — antes mostrarBiblioteca() se
+// llamaba igual (sin condición) antes de abrirExpediente(), que es
+// asincrónica (decodifica los PDFs), así que la biblioteca se veía un
+// instante antes de que el lector la tapara.
+const cidAbrir = new URLSearchParams(location.search).get('abrir');
+if (cidAbrir) {
+  // .library tiene display:flex por defecto en el CSS (para que se vea
+  // sin depender de JS en el caso normal) — se ve desde el primer pintado
+  // de la página, antes de que corra cualquier script. Ocultarla recién
+  // dentro de abrirExpediente() (asincrónica: decodifica los PDFs) dejaba
+  // ese hueco visible. Se oculta acá, ya, antes de arrancar esa espera.
+  libraryEl.style.display = 'none';
+  abrirExpediente(cidAbrir);
+} else {
+  mostrarBiblioteca();
+}
