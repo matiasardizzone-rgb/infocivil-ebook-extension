@@ -27,8 +27,15 @@ const esperar = ms => new Promise(r => setTimeout(r, ms));
 // devuelve el foco al operador apenas termina de buscar, sin depender de
 // que la ventana de consulta se cierre (sigue abierta, sin foco, por si
 // hace falta para las descargas).
-function devolverFoco(sesion) {
-  if (sesion.pestanaPrevia) chrome.tabs.update(sesion.pestanaPrevia, { active: true }).catch(() => {});
+// La búsqueda corre en segundo plano: el foco solo hay que devolverlo si el
+// rescate (30s sin confirmar) llegó a traer el SCW al frente. Si no, no se
+// mueve al operador de donde esté (pudo haber cambiado de pestaña mientras
+// tanto, y arrastrarlo de vuelta sería peor).
+async function devolverFoco(sesion) {
+  if (sesion.rescateTimer) { clearTimeout(sesion.rescateTimer); sesion.rescateTimer = null; }
+  if (!sesion.pestanaPrevia || !sesion.tabId) return;
+  const scw = await chrome.tabs.get(sesion.tabId).catch(() => null);
+  if (scw && scw.active) chrome.tabs.update(sesion.pestanaPrevia, { active: true }).catch(() => {});
 }
 
 // Mensaje al content script de la pestaña; null si todavía no hay uno
@@ -146,17 +153,32 @@ async function esperarStorage(clave, timeoutMs) {
 // la parte de consultar() que no depende de cómo se llegó hasta acá.
 // Reusada tanto por la búsqueda normal como por abrir un vinculado sobre
 // una pestaña que ya estaba en el expediente.
-async function leerHistoricasYActuaciones(tabId, cid, avisar) {
-  avisar('Leyendo actuaciones históricas…');
-  const clave = 'pjnHistoricas_' + cid;
-  await chrome.storage.local.remove([clave, 'pjnHistoricasResult']);
-  await chrome.tabs.update(tabId, { url: urlHistoricas(cid) });
-  const hist = await esperarStorage(clave, 60000);
-  if (!hist.ok) console.warn('[Infocivil consulta] Históricas no leídas:', hist.error);
+// Desde este año el fuero no tiene actuaciones históricas (dato del
+// operador: los expedientes de 2019 en adelante nacieron digitales). Para
+// esos no se visita actuacionesHistoricas.seam: se ahorra la ida, la
+// espera y la vuelta enteras.
+const ANIO_SIN_HISTORICAS = 2019;
 
-  await chrome.tabs.update(tabId, { url: urlExpediente(cid) });
-  const vuelta = await esperarEstado(tabId, e => e.esExpediente, 30000, 'volviendo al expediente tras históricas');
-  if (vuelta.vencido) throw new Error('No se pudo volver al expediente después de leer las históricas.');
+async function leerHistoricasYActuaciones(tabId, cid, avisar, anio) {
+  const clave = 'pjnHistoricas_' + cid;
+  let vuelta;
+  if (Number(anio) >= ANIO_SIN_HISTORICAS) {
+    // Lista vacía explícita (no ausencia de la clave): así obtenerActuaciones
+    // no lo reporta como "históricas faltantes".
+    await chrome.storage.local.set({ [clave]: [] });
+    vuelta = await esperarEstado(tabId, e => e.esExpediente, 30000, 'confirmando expediente');
+    if (vuelta.vencido) throw new Error('La página del expediente no terminó de cargar.');
+  } else {
+    avisar('Leyendo actuaciones históricas…');
+    await chrome.storage.local.remove([clave, 'pjnHistoricasResult']);
+    await chrome.tabs.update(tabId, { url: urlHistoricas(cid) });
+    const hist = await esperarStorage(clave, 60000);
+    if (!hist.ok) console.warn('[Infocivil consulta] Históricas no leídas:', hist.error);
+
+    await chrome.tabs.update(tabId, { url: urlExpediente(cid) });
+    vuelta = await esperarEstado(tabId, e => e.esExpediente, 30000, 'volviendo al expediente tras históricas');
+    if (vuelta.vencido) throw new Error('No se pudo volver al expediente después de leer las históricas.');
+  }
 
   avisar('Leyendo actuaciones…');
   const act = await pedirCuandoListo(tabId, e => e.esExpediente, { action: 'obtenerActuaciones' }, { timeoutMs: 25000 });
@@ -181,21 +203,33 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
   // es, al final, la única forma que se confirmó que funciona). Se
   // recuerda cuál era la pestaña activa antes para volver a ella apenas
   // se encuentra el expediente.
-  const pestanaPrevia = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
-    .then(t => (t && t[0]) || null).catch(() => null);
+  // Pestaña de origen: la que mandó la consulta (sesion.pestanaOrigen, que
+  // Chrome informa en el propio mensaje), no "la activa de la última
+  // ventana enfocada" — con la consola del service worker abierta, esa
+  // consulta puede devolver la ventana de DevTools, y el foco nunca vuelve.
+  const pestanaPrevia = sesion.pestanaOrigen ||
+    await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+      .then(t => (t && t[0]) || null).catch(() => null);
 
   avisar('Conectando con el Sistema de Consulta Web…');
-  // Con foco (active:true): se probó en segundo plano (v0.6.0) con un
-  // rescate que la traía al frente si tardaba — contra el sitio real
-  // igual terminaba apareciendo, probablemente porque el SCW sí necesita
-  // estar en primer plano durante los saltos de navegación de home.seam.
-  // Se vuelve a lo confirmado: con foco desde el arranque, y devuelto
-  // apenas se encuentra el expediente (unos segundos después, no al
-  // final) — eso sí anduvo bien contra el sitio real.
-  const tab = await chrome.tabs.create({ url: URL_HOME, active: true });
+  // En SEGUNDO PLANO, al lado de la pestaña de la extensión. v0.6.0 ya lo
+  // había intentado, pero con un rescate que la traía al frente a los 15s
+  // si todavía no se había confirmado el expediente — y contra el sitio
+  // real la confirmación llega recién a los 12-14s (camino de "respuesta
+  // perdida", v0.5.5): lo que se vio aparecer fue casi seguro el propio
+  // rescate, no el SCW pidiendo foco. Ahora el rescate espera 30s: solo
+  // entra en juego si la búsqueda está trabada de verdad.
+  const tab = await chrome.tabs.create({
+    url: URL_HOME, active: false,
+    ...(pestanaPrevia ? { windowId: pestanaPrevia.windowId, index: pestanaPrevia.index + 1 } : {}),
+  });
   const tabId = tab.id;
   sesion.tabId = tabId;
   sesion.pestanaPrevia = pestanaPrevia && pestanaPrevia.id !== tabId ? pestanaPrevia.id : null;
+  sesion.rescateTimer = setTimeout(() => {
+    console.warn('[Infocivil consulta] 30s sin confirmar el expediente: se trae la pestaña del SCW al frente por si necesita estar visible.');
+    chrome.tabs.update(tabId, { active: true }).catch(() => {});
+  }, 30000);
 
   const home = await esperarEstado(tabId, e => e.enHome, 30000, 'esperando home.seam');
   if (home.vencido) throw new Error('El SCW no respondió (no cargó la Consulta Pública).');
@@ -309,7 +343,7 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
 
   // Históricas: se leen navegando la misma pestaña a su página (el
   // content script las lee solo y las deja en storage) y se vuelve.
-  const { vuelta, act } = await leerHistoricasYActuaciones(tabId, cid, avisar);
+  const { vuelta, act } = await leerHistoricasYActuaciones(tabId, cid, avisar, anio);
 
   return {
     cid, tabId, aviso,
@@ -368,7 +402,7 @@ async function abrirVinculadoEnPestanaExistente(tabId, expedienteTexto, avisar) 
   }
 
   const cid = r.cid;
-  const { vuelta, act } = await leerHistoricasYActuaciones(tabId, cid, avisar);
+  const { vuelta, act } = await leerHistoricasYActuaciones(tabId, cid, avisar, ((expedienteTexto || '').match(/\/(\d{4})\//) || [])[1]);
   return {
     cid, tabId, aviso: '', nombre: expedienteTexto,
     caratula: vuelta.caratula || act.tituloExpediente || '',
@@ -400,11 +434,12 @@ export function iniciarAperturaVinculados() {
           }
           console.warn('[Infocivil consulta] La pestaña existente ya no sirve para abrir el vinculado; se busca de nuevo desde cero.');
         }
-        const sesion = {};
+        const sesion = { pestanaOrigen: sender && sender.tab };
         try {
           const res = await consultar(msg, sesion, () => {});
           sendResponse({ tipo: 'listo', ...res });
         } catch (err) {
+          await devolverFoco(sesion);
           if (sesion.tabId) chrome.tabs.remove(sesion.tabId).catch(() => {});
           throw err;
         }
@@ -420,13 +455,14 @@ export function iniciarAperturaVinculados() {
 export function iniciarConsultas() {
   chrome.runtime.onConnect.addListener(port => {
     if (port.name !== 'consulta') return;
-    const sesion = { tabId: null, cid: null };
+    const sesion = { tabId: null, cid: null, pestanaOrigen: port.sender && port.sender.tab };
     const avisar = texto => { try { port.postMessage({ tipo: 'etapa', texto }); } catch (e) {} };
 
     port.onMessage.addListener(async msg => {
       if (!msg || msg.tipo !== 'consultar') return;
       if (sesion.tabId) {
         // Consulta nueva desde la misma pantalla: se descarta la anterior.
+        if (sesion.rescateTimer) { clearTimeout(sesion.rescateTimer); sesion.rescateTimer = null; }
         chrome.tabs.remove(sesion.tabId).catch(() => {});
         sesion.tabId = sesion.cid = null;
       }
@@ -435,7 +471,7 @@ export function iniciarConsultas() {
         port.postMessage({ tipo: 'listo', ...res });
       } catch (err) {
         console.warn('[Infocivil consulta]', err);
-        devolverFoco(sesion);
+        await devolverFoco(sesion);
         if (sesion.tabId) chrome.tabs.remove(sesion.tabId).catch(() => {});
         sesion.tabId = sesion.cid = null;
         try { port.postMessage({ tipo: 'error', texto: err.message || String(err) }); } catch (e) {}
@@ -445,6 +481,7 @@ export function iniciarConsultas() {
     // La pantalla de inicio se cerró o navegó: la ventana del SCW ya no
     // hace falta.
     port.onDisconnect.addListener(() => {
+      if (sesion.rescateTimer) clearTimeout(sesion.rescateTimer);
       if (sesion.tabId) chrome.tabs.remove(sesion.tabId).catch(() => {});
     });
   });

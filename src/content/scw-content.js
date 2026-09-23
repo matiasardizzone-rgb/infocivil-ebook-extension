@@ -274,25 +274,37 @@
   // ─── Históricas scraping directo ──────────────────────────────────────────
 
 
+  // Criterio portado del Portable (commit "Detectar correctamente sin
+  // historicas", confirmado con un expediente real): cuando no hay
+  // históricas, el SCW NO muestra ningún cartel — solo carga la página con
+  // los datos generales del expediente y ninguna tabla. Buscar el texto
+  // "no posee actuaciones hist" no alcanzaba: se esperaban los 40s enteros
+  // por algo que nunca iba a aparecer. Ahora: si la página ya cargó (tiene
+  // "Carátula") y en 6s no aparecieron filas con documentos, no hay.
   async function esperarFilasConLinks(timeoutMs) {
     return new Promise(resolve => {
       const inicio = Date.now();
+      let paginaCargadaDesde = null;
       const id = setInterval(() => {
-        // Salir rápido si la página dice que no hay históricas
-        const sinHistoricas = Array.from(document.querySelectorAll('*')).some(el =>
-          el.children.length === 0 &&
-          (el.textContent || '').toLowerCase().includes('no posee actuaciones hist')
-        );
-        if (sinHistoricas) {
-          console.log('[PJN] Expediente sin actuaciones históricas.');
+        const texto = (document.body && document.body.innerText) || '';
+        if (/no posee actuaciones hist/i.test(texto)) {
+          console.log('[PJN] Expediente sin actuaciones históricas (cartel explícito).');
           clearInterval(id); resolve(); return;
         }
         const filas = document.querySelectorAll('tbody tr');
         const ok = Array.from(filas).some(f => f.querySelector("a[href*='viewer']"));
         if (ok) {
           console.log('[PJN] Tabla de históricas lista con', filas.length, 'filas');
-          clearInterval(id); resolve();
-        } else if (Date.now() - inicio >= timeoutMs) {
+          clearInterval(id); resolve(); return;
+        }
+        if (/car[aá]tula/i.test(texto)) {
+          if (paginaCargadaDesde === null) paginaCargadaDesde = Date.now();
+          else if (Date.now() - paginaCargadaDesde > 6000) {
+            console.log('[PJN] Página de históricas cargada sin documentos: no tiene.');
+            clearInterval(id); resolve(); return;
+          }
+        }
+        if (Date.now() - inicio >= timeoutMs) {
           console.log('[PJN] Timeout esperando tabla históricas');
           clearInterval(id); resolve();
         }

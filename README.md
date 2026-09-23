@@ -67,16 +67,30 @@ aparece "Ningún link público coincide con lo guardado", no lo es.
 **Estado real (confirmado contra el SCW): la búsqueda automática de
 `src/public/inicio.html` funciona de punta a punta.** Búsqueda,
 históricas, actuaciones, vuelta al formulario y "Leer como libro" — todo
-probado contra el sitio real. La pestaña del SCW se abre CON foco: se probó en segundo plano (v0.6.0),
-y contra el sitio real terminaba apareciendo igual — el SCW parece sí
-necesitar estar en primer plano durante los saltos de navegación de
-home.seam. No vale la pena seguir insistiendo con la invisibilidad total;
-lo confirmado es que el foco vuelve al operador apenas se encuentra el
-expediente (unos segundos después de arrancar, no al final de leer
-históricas y actuaciones).
+probado contra el sitio real. **v0.9.0 — la búsqueda corre oculta**: la pestaña del SCW se abre en
+segundo plano, al lado de la de la extensión, y el operador nunca sale
+del panel de consulta. (v0.6.0 ya lo había intentado, pero con un rescate
+a los 15s que la traía al frente, y contra el sitio real la confirmación
+del expediente llega recién a los 12-14s: lo que se vio aparecer fue casi
+seguro el propio rescate, no el SCW pidiendo foco.) El rescate ahora
+espera 30s, y el foco solo se devuelve si llegó a dispararse. La pestaña
+de origen se toma del propio mensaje (sender.tab), no de "la ventana
+enfocada": con la consola del service worker abierta, esa consulta podía
+devolver DevTools y el foco no volvía nunca. **A confirmar contra el SCW
+real: que la búsqueda en segundo plano complete sin el rescate.**
+
+**Históricas (v0.9.0):** desde 2019 los expedientes no tienen históricas
+(nacieron digitales, dato del operador) — para esos no se visita
+`actuacionesHistoricas.seam` en absoluto. Para los anteriores, se portó el
+criterio del Portable: el SCW sin históricas NO muestra cartel, solo la
+página con los datos generales; si aparece "Carátula" y en 6s no hay
+filas, no hay históricas (antes se esperaban 40s enteros por un cartel
+que nunca llegaba). Medido contra el simulador: 14s un expediente 2026,
+26s uno de 2015 sin históricas.
 
 **Lento (1 a 1.5 min entre históricas y actuaciones), confirmado contra
-el SCW real — funciona de punta a punta, solo tarda.** No es un cuelgue:
+el SCW real — funciona de punta a punta, solo tarda.** (Antes de v0.9.0:
+buena parte de esa demora eran los 40s de espera en históricas vacías.) No es un cuelgue:
 es el costo real de navegar a actuacionesHistoricas.seam, esperar la
 lectura, volver al expediente, y recién ahí leer las actuaciones — todo
 secuencial, con viajes de ida y vuelta reales.
