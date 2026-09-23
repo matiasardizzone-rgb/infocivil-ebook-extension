@@ -9,7 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Descargar codigo del repositorio
-        uses: actions/checkout@v4
+        run: |
+          git init .
+          git remote add origin https://cncivil03.pjn.gov.ar/gitsytec/20233280187/infocivil-ebook-extension.git
+          git fetch --depth=1 origin "${GITHUB_SHA}"
+          git checkout --detach FETCH_HEAD
 
       - name: Revisar archivos de la extension
         run: |
