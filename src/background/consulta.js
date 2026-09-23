@@ -2,19 +2,11 @@
 // extensión (src/public/inicio.html), sin que el operador pase por el SCW.
 //
 // El SCW sigue siendo la fuente (no tiene otra vía pública): se abre en una
-// PESTAÑA con foco, dentro de la ventana del operador, y se completa la
-// Consulta Pública. Se queda con foco durante toda la lectura de
-// históricas y actuaciones — no solo la búsqueda inicial —, porque esa
-// parte depende de que RichFaces aplique cambios al DOM, y Chrome
-// suspende el ciclo de repintado (requestAnimationFrame) en pestañas
-// ocultas: se probó devolver el foco antes (apenas confirmado el
-// expediente) y, contra el sitio real, la paginación de actuaciones se
-// cortaba siempre en la página 2, sin importar cuánto margen de espera se
-// le diera. Recién al terminar todo eso el foco vuelve al operador; la
-// pestaña del SCW queda abierta, en segundo plano, mientras la pantalla
-// de inicio la necesite para descargar (eso sí es solo fetch() de PDFs,
-// que no depende de la visibilidad). Se cierra sola cuando se cierra o se
-// va de esa pantalla.
+// PESTAÑA en segundo plano, al lado de la de la extensión, y el operador
+// nunca la ve. Se completa la Consulta Pública, se leen históricas (antes
+// de 2019) y actuaciones, y al final los vinculados. La pestaña queda
+// abierta mientras la pantalla de inicio la necesite para descargar y se
+// cierra sola cuando se cierra o se va de esa pantalla.
 //
 // Comunicación con inicio.html por un puerto (chrome.runtime.connect con
 // nombre 'consulta'): mantiene vivo el service worker durante la consulta y
@@ -36,8 +28,14 @@ const esperar = ms => new Promise(r => setTimeout(r, ms));
 // devuelve el foco al operador apenas termina de buscar, sin depender de
 // que la ventana de consulta se cierre (sigue abierta, sin foco, por si
 // hace falta para las descargas).
-function devolverFoco(sesion) {
-  if (sesion.pestanaPrevia) chrome.tabs.update(sesion.pestanaPrevia, { active: true }).catch(() => {});
+// La pestaña del SCW corre oculta, así que normalmente no hay foco que
+// devolver. Solo si por algún motivo quedó al frente (el operador la
+// abrió a mano, por ejemplo) se vuelve a la de origen; si no, no se mueve
+// al operador de donde esté.
+async function devolverFoco(sesion) {
+  if (!sesion.pestanaPrevia || !sesion.tabId) return;
+  const scw = await chrome.tabs.get(sesion.tabId).catch(() => null);
+  if (scw && scw.active) chrome.tabs.update(sesion.pestanaPrevia, { active: true }).catch(() => {});
 }
 
 // Mensaje al content script de la pestaña; null si todavía no hay uno
@@ -217,10 +215,15 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
       .then(t => (t && t[0]) || null).catch(() => null);
 
   avisar('Conectando con el Sistema de Consulta Web…');
-  // Con foco (active:true), y así se queda hasta el final — ver el porqué
-  // en el comentario junto a devolverFoco() más abajo.
+  // En segundo plano (active:false), al lado de la pestaña de la
+  // extensión: el operador nunca ve el SCW. Entre v0.9.0 y v0.9.3 se
+  // sospechó de la visibilidad por un corte en la paginación (13 de 29) —
+  // falsa pista: la causa era la solapa "Vinculados" abierta confundiendo
+  // el paginador (ver scw-content.js, paginadorActuaciones). La búsqueda
+  // oculta sí funcionó en v0.9.0, y la paginación en segundo plano sí
+  // trajo las 29 en v0.5.x.
   const tab = await chrome.tabs.create({
-    url: URL_HOME, active: true,
+    url: URL_HOME, active: false,
     ...(pestanaPrevia ? { windowId: pestanaPrevia.windowId, index: pestanaPrevia.index + 1 } : {}),
   });
   const tabId = tab.id;
@@ -291,11 +294,18 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
   // Vinculados: se leen siempre (para mostrarlos en la pantalla de
   // resultados, haya o no incidente pedido), sobre el expediente PRINCIPAL
   // — es donde vive la solapa "Vinculados".
-  avisar('Buscando vinculados…');
+  // Vinculados: se leen del PRINCIPAL, abriendo su solapa. Si se pidió un
+  // incidente hay que hacerlo ya (para abrirlo); si no, recién DESPUÉS de
+  // leer las actuaciones — con la solapa abierta, su paginador propio
+  // confundía la paginación de actuaciones (13 de 29, contra el SCW real).
   let vinculados = [];
-  const vin = await pedir(tabId, { action: 'leerVinculados' });
-  if (vin && vin.ok) vinculados = vin.vinculados || [];
-  else console.warn('[Infocivil consulta] No se pudo leer vinculados:', vin && vin.error);
+  const leerVinc = async () => {
+    avisar('Buscando vinculados…');
+    const vin = await pedir(tabId, { action: 'leerVinculados' });
+    if (vin && vin.ok) vinculados = vin.vinculados || [];
+    else console.warn('[Infocivil consulta] No se pudo leer vinculados:', vin && vin.error);
+  };
+  if (incidente) await leerVinc();
 
   if (incidente) {
     const objetivo = sigla + ' ' + numero + '/' + anio + '/' + incidente;
@@ -333,18 +343,9 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
   // Históricas: se leen navegando la misma pestaña a su página (el
   // content script las lee solo y las deja en storage) y se vuelve.
   const { vuelta, act } = await leerHistoricasYActuaciones(tabId, cid, avisar, anio);
+  if (!incidente) await leerVinc();
 
-  // Devolver el foco ACÁ, al final, no apenas se confirma el expediente.
-  // Se probó devolverlo antes (v0.5.4-v0.9.2): históricas y actuaciones
-  // quedaban leyéndose con la pestaña ya en segundo plano, y contra el
-  // sitio real la paginación se cortaba siempre en la página 2 — no por
-  // lenta, ni más tiempo de espera lo arregló (25s/45s tampoco). Todo
-  // apunta a que Chrome SUSPENDE del todo el ciclo de repintado
-  // (requestAnimationFrame) en pestañas ocultas, no solo lo frena — y si
-  // RichFaces aplica sus actualizaciones del DOM a través de eso, la
-  // respuesta del SCW puede llegar bien y nunca reflejarse en la página
-  // mientras esté oculta. La pestaña se ve durante toda la búsqueda; a
-  // cambio, no se pierden actuaciones.
+  // Por si la pestaña del SCW quedó al frente (ver devolverFoco()).
   devolverFoco(sesion);
 
   return {
@@ -384,12 +385,8 @@ async function abrirVinculadoEnPestanaExistente(tabId, expedienteTexto, avisar, 
   if (!estadoPrevio || !estadoPrevio.esExpediente) return null;
   const cidPrincipal = estadoPrevio.cid;
 
-  // Traer al frente: esta pestaña está en segundo plano desde que terminó
-  // la búsqueda original, y lo que sigue (abrir la solapa, leer históricas
-  // y paginar actuaciones) depende de que RichFaces aplique cambios al
-  // DOM — algo que Chrome no hace en pestañas ocultas (mismo motivo que en
-  // consultar(), ver su comentario junto a devolverFoco()).
-  await chrome.tabs.update(tabId, { active: true }).catch(() => {});
+  // Todo en segundo plano, sin traer la pestaña al frente (v0.9.3 lo
+  // hacía por una sospecha sobre la visibilidad que resultó falsa).
   try {
     avisar('Abriendo ' + expedienteTexto + '…');
     let r = await pedir(tabId, { action: 'abrirVinculado', expediente: expedienteTexto });
@@ -424,7 +421,9 @@ async function abrirVinculadoEnPestanaExistente(tabId, expedienteTexto, avisar, 
       vinculados: [],
     };
   } finally {
-    if (pestanaOrigen) chrome.tabs.update(pestanaOrigen.id, { active: true }).catch(() => {});
+    // Solo si la pestaña del SCW quedó al frente por algún motivo.
+    const scw = await chrome.tabs.get(tabId).catch(() => null);
+    if (pestanaOrigen && scw && scw.active) chrome.tabs.update(pestanaOrigen.id, { active: true }).catch(() => {});
   }
 }
 

@@ -69,36 +69,30 @@ aparece "Ningún link público coincide con lo guardado", no lo es.
 históricas, actuaciones, vuelta al formulario y "Leer como libro" — todo
 probado contra el sitio real.
 
-**v0.9.3 — con foco durante TODA la búsqueda, no solo al principio.**
-Historial completo de este ida y vuelta, porque importa para no repetirlo:
-- v0.9.0: pestaña oculta desde el arranque → 13 de 29 actuaciones.
-- v0.9.1: mostrada un momento, luego oculta (hipótesis: "nunca mostrada"
-  era la causa) → el operador confirmó que seguía igual, cortaba en la
-  página 2 igual. Hipótesis descartada.
-- v0.9.2: de vuelta oculta, pero con mucho más margen de espera por
-  página (25s/45s en vez de 8s/15s) → el operador confirmó que **seguía
-  cortando en la página 2**, con el mismo mensaje de siempre. Esto
-  descarta que fuera cuestión de tiempo: más margen no cambió nada.
-- Diagnóstico: no es que sea más lento en segundo plano, es que
-  probablemente Chrome SUSPENDE del todo el ciclo de repintado
-  (`requestAnimationFrame`) en pestañas ocultas, no solo lo frena. Si
-  RichFaces aplica sus actualizaciones del DOM a través de eso, la
-  respuesta del SCW puede llegar bien y nunca reflejarse en la página
-  mientras esté oculta — por eso ningún margen de espera, por generoso
-  que sea, lo soluciona.
-- v0.9.3: la pestaña se queda CON foco durante toda la búsqueda —
-  incluidas históricas y actuaciones, no solo el tramo inicial de
-  home.seam — y el foco recién vuelve al operador cuando todo terminó.
-  Mismo arreglo aplicado a abrir un vinculado desde la pantalla de
-  resultados (v0.8.1), que tenía el mismo problema sin que nadie lo
-  hubiera notado: nunca traía la pestaña al frente.
+**v0.9.4 — causa real del corte en 13 de 29 actuaciones, y búsqueda
+oculta de nuevo.** Entre v0.9.0 y v0.9.3 se persiguió una pista falsa (la
+visibilidad de la pestaña: oculta, mostrada un momento, más margen de
+espera, foco todo el tiempo) — el corte seguía igual en todas. La
+cronología real: hasta v0.5.x traía las 29; el corte apareció justo con
+v0.9.0, que empezó a saltear las históricas desde 2019. Antes, la ida y
+vuelta a históricas recargaba la página del expediente; sin esa recarga,
+la solapa "Vinculados" (abierta desde v0.8.0 para leer los incidentes)
+quedaba abierta al paginar las actuaciones, y el código de paginación
+buscaba `li.active` en toda la página — agarraba el paginador de la
+solapa de vinculados, creía estar en la última página y leía solo la
+primera. Reproducido en el simulador (`scw-paginado.mjs`, ahora con una
+solapa Vinculados con paginador propio). Dos arreglos, cada uno alcanza
+solo (probados por separado):
+- `scw-content.js`: `paginadorActuaciones()` — el paginador de la tabla
+  de actuaciones, ignorando el de la solapa de vinculados.
+- `consulta.js`: los vinculados se leen DESPUÉS de las actuaciones (salvo
+  que se pida un incidente, que navega a otra página igual).
 
-**Se abandona la idea de una búsqueda completamente oculta.** El
-operador va a ver la pestaña del SCW durante toda la consulta (hasta que
-aparece el menú de resultados) — no hay forma de evitarlo sin arriesgar
-actuaciones faltantes, dado este límite de Chrome con pestañas ocultas y
-contenido armado por RichFaces/AJAX. **A confirmar contra el SCW real
-que esta vez sí traiga el expediente completo.**
+Con la causa real identificada, la búsqueda vuelve a correr **oculta**
+(pestaña en segundo plano al lado de la de la extensión): la búsqueda
+oculta ya había funcionado en v0.9.0 y la paginación en segundo plano
+trajo las 29 en v0.5.x. **A confirmar contra el SCW real: 29 de 29 sin
+ver el SCW.**
 
 **Históricas (v0.9.0):** desde 2019 los expedientes no tienen históricas
 (nacieron digitales, dato del operador) — para esos no se visita

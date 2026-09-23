@@ -908,13 +908,11 @@ init();
       if(!oc){console.log('[PJN] Fin actuales. Total:',r.length);break;}
       const h=obtenerHtmlTabla();
       await ejecutarEnPaginaViaBg(oc);
-      // 25s, no 8s: esta pestaña corre en segundo plano casi siempre (la
-      // búsqueda automática la manda ahí apenas confirma el expediente,
-      // para no tener al operador mirándola) — y ahí Chrome hace más
-      // lento el vaivén con el SCW. Confirmado contra el sitio real: con
-      // 8s, un expediente de varias páginas se cortaba siempre en la
-      // página 2. Como de todas formas nadie está esperando esto en
-      // pantalla, el costo de ser más paciente es bajo.
+      // 25s (antes 8s): esta pestaña corre en segundo plano, donde Chrome
+      // espacia los timers, y nadie está mirando — ser paciente cuesta
+      // poco. OJO: el corte "en la página 2" visto en v0.9.x NO era por
+      // esto (más margen no lo cambió); era el paginador de la solapa
+      // Vinculados, ver paginadorActuaciones().
       let cambio = await esperarCambioDOM(h,25000);
       if(!cambio){
         // Puede ser una respuesta lenta puntual de RichFaces, no
@@ -969,11 +967,31 @@ init();
     });
   }
 
-  function obtenerPaginaActual(){const a=document.querySelector('li.active');if(a){const n=parseInt(a.textContent.trim(),10);if(!isNaN(n))return n;}return 1;}
-  function obtenerOnclickSiguiente(){const li=document.querySelector('li.active');if(!li)return null;const s=li.nextElementSibling;if(!s)return null;const a=s.querySelector('a');const o=a&&a.getAttribute('onclick')||'';return o.includes('RichFaces')?o:null;}
+  // Paginador de la tabla de ACTUACIONES, no cualquiera de la página: con
+  // la solapa "Vinculados" abierta (se lee para mostrar los incidentes),
+  // su tabla trae su propio paginador, y un 'li.active' genérico podía
+  // agarrar ese — la paginación creía estar en la última página y leía
+  // solo la primera (visto contra el SCW real: 13 de 29 actuaciones).
+  function paginadorActuaciones(){
+    const vinc=document.querySelector('#expediente\\:vinculadosTab');
+    const tabla=document.querySelector('#expediente\\:action-table');
+    const candidatos=Array.from(document.querySelectorAll('.pagination, ul')).filter(u=>
+      u.querySelector('li.active') && !(vinc && vinc.contains(u)));
+    if(!candidatos.length)return null;
+    if(tabla){
+      // El primero que aparece después de la tabla de actuaciones en el DOM.
+      const despues=candidatos.find(u=>tabla.compareDocumentPosition(u)&Node.DOCUMENT_POSITION_FOLLOWING);
+      if(despues)return despues;
+    }
+    return candidatos[0];
+  }
+  function liActivoActuaciones(){const p=paginadorActuaciones();return p?p.querySelector('li.active'):null;}
+  function obtenerPaginaActual(){const a=liActivoActuaciones();if(a){const n=parseInt(a.textContent.trim(),10);if(!isNaN(n))return n;}return 1;}
+  function obtenerOnclickSiguiente(){const li=liActivoActuaciones();if(!li)return null;const s=li.nextElementSibling;if(!s)return null;const a=s.querySelector('a');const o=a&&a.getAttribute('onclick')||'';return o.includes('RichFaces')?o:null;}
   async function irAPrimeraPagina(){
     if(obtenerPaginaActual()===1)return;
-    for(const li of document.querySelectorAll('.pagination li')){
+    const pag=paginadorActuaciones();
+    for(const li of (pag?pag.querySelectorAll('li'):document.querySelectorAll('.pagination li'))){
       const a=li.querySelector('a');const o=a&&a.getAttribute('onclick');
       if(li.textContent.trim()==='1'&&o&&o.includes('RichFaces')){const h=obtenerHtmlTabla();await ejecutarEnPaginaViaBg(o);await esperarCambioDOM(h,15000);return;}
     }
