@@ -20,7 +20,13 @@ let pages = [];          // aplanado: { di, p, doc, canvas:null }
 let flags = [];
 let firmasPorDoc = [];   // { estado, firmas, detalle } | null (todavía no verificado) — indexado por di
 let cur = 0, animating = false, selColor = FLAG_COLORS[0].id;
-let zoomManual = 1; // por defecto 100% (tamaño real del PDF), no el ajuste automático — pedido explícito: no arrancar en un zoom que se sienta "grande" de entrada
+// Ajuste automático por defecto (null), no un porcentaje fijo: en una
+// pantalla ancha, "100%" (tamaño real del PDF) deja la hoja chica con
+// mucho margen vacío a los costados — lo pidió el operador explícitamente
+// ("aprovechar al máximo la pantalla") después de ver el lector real en
+// un monitor grande. El operador puede elegir 100% a mano desde el
+// selector si lo prefiere en su pantalla — solo cambia el valor inicial.
+let zoomManual = null;
 
 // ─────────────────────────── BIBLIOTECA (grilla) ───────────────────────────
 const libraryEl = document.getElementById('library');
