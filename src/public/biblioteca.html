@@ -105,7 +105,7 @@
   .lib-add b{font-size:20px;font-weight:400}
 
   /* ══════════════════════════ RIEL DE SOLAPAS ══════════════════════ */
-  .scene{position:relative;width:min(99.5vw,2000px);height:min(98.5vh,1200px);display:flex;align-items:stretch}
+  .scene{position:relative;width:100vw;height:100vh;display:flex;align-items:stretch}
   /* El riel de pestañas por actuación (.tab-rail) y el cordón rojo
      decorativo (.cord-col) se sacaron: quedaban redundantes con el panel
      de índice, siempre visible y con más información. */
@@ -129,7 +129,7 @@
     background:linear-gradient(160deg,var(--cover-navy) 0%,var(--cover-navy-deep) 100%);
     border-radius:3px 10px 10px 3px;
     box-shadow:0 30px 60px rgba(0,0,0,.55),0 8px 20px rgba(0,0,0,.4),inset 0 0 0 1px rgba(255,255,255,.06);
-    padding:8px 8px 8px 8px;overflow:hidden; /* pareja: los controles ya no flotan abajo del libro, viven en la barra superior — no hace falta reservarles lugar */
+    padding:0;overflow:hidden; /* al máximo: sin margen, los controles ya no flotan abajo del libro, viven en la barra superior */
   }
   .book-header{display:flex;align-items:center;gap:12px;color:#dfe9f7;padding:2px 6px 8px 14px;flex-shrink:0;flex-wrap:wrap;row-gap:6px}
   .escudo{font-size:20px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))}
@@ -140,7 +140,7 @@
   .book-header .expte .n{font-size:12px;font-weight:600;color:#fff}
   .book-header .expte .l{font-size:8.5px;color:#8fa8cf;text-transform:uppercase;letter-spacing:.5px}
 
-  .stage{position:relative;flex:1;margin:0 4px 4px 4px;border-radius:2px 6px 6px 2px;cursor:grab}
+  .stage{position:relative;flex:1;margin:0;border-radius:0;cursor:grab}
   .stage.dragging{cursor:grabbing}
   .stage-shadow{position:absolute;inset:6px -8px -8px 6px;background:rgba(0,0,0,.35);border-radius:2px 6px 6px 2px;filter:blur(6px);z-index:0}
 
@@ -159,6 +159,10 @@
     transition:opacity .22s ease,transform .22s ease;
   }
   .cara.b{visibility:hidden;opacity:0}
+  /* Modo de una sola página: la hoja derecha y el lomo desaparecen: la
+     izquierda, ya flex:1, pasa a ocupar todo el ancho sola. */
+  .cara.una-pagina .leaf-col[data-lado="r"],
+  .cara.una-pagina .spine{display:none}
   .cara.sale-izq{opacity:0;transform:translateX(-22px)}
   .cara.sale-der{opacity:0;transform:translateX(22px)}
   .cara.entra-izq{transform:translateX(-22px)}
@@ -440,6 +444,7 @@
           <option value="3">300%</option>
         </select>
         <button class="idx-btn" id="btnFit" title="Ajustar la página al espacio disponible">⟷ Ajustar</button>
+        <button class="idx-btn" id="btnPaginas" title="Ver una página sola en vez de dos enfrentadas (monitores angostos)">📖 2 páginas</button>
         <button class="idx-btn" id="btnDescargarDoc" title="Descargar este documento">⬇️ Descargar</button>
         <div class="flag-btn-wrap">
           <button class="idx-btn" id="btnFlag" title="Marcar esta foja">🚩 Marcar</button>

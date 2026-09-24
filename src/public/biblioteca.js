@@ -20,6 +20,9 @@ let pages = [];          // aplanado: { di, p, doc, canvas:null }
 let flags = [];
 let firmasPorDoc = [];   // { estado, firmas, detalle } | null (todavía no verificado) — indexado por di
 let cur = 0, animating = false, selColor = FLAG_COLORS[0].id;
+// Una página a la vez o dos enfrentadas — elegible por el operador
+// (algunos monitores del fuero son cuadrados, no todos anchos).
+let modoUnaPagina = false;
 // Ajuste automático por defecto (null), no un porcentaje fijo: en una
 // pantalla ancha, "100%" (tamaño real del PDF) deja la hoja chica con
 // mucho margen vacío a los costados — lo pidió el operador explícitamente
@@ -213,6 +216,14 @@ document.getElementById('btnFit').addEventListener('click', async () => {
   pages.forEach(p => { p.canvas = null; });
   await render(cur);
 });
+document.getElementById('btnPaginas').addEventListener('click', async function () {
+  // El ancho de la hoja cambia (una sola pasa a ocupar lo que antes
+  // ocupaban dos): los canvases ya renderizados quedan con el tamaño
+  // viejo, hay que recalcularlos contra el nuevo espacio disponible.
+  pages.forEach(p => { p.canvas = null; });
+  await cambiarModoPaginas(!modoUnaPagina);
+  this.textContent = modoUnaPagina ? '📄 1 página' : '📖 2 páginas';
+});
 document.getElementById('btnDescargarDoc').addEventListener('click', () => {
   if (!pages[cur]) return;
   const doc = pages[cur].doc;
@@ -381,7 +392,7 @@ async function renderCanvas(idx) {
     scale = 1.4;
     if (stageEl && stageEl.clientWidth > 80 && stageEl.clientHeight > 40) {
       const margen = 0.95;
-      const anchoHoja = stageEl.clientWidth / 2;
+      const anchoHoja = modoUnaPagina ? stageEl.clientWidth : stageEl.clientWidth / 2;
       scale = Math.min((anchoHoja * margen) / base.width, (stageEl.clientHeight * margen) / base.height);
       scale = Math.max(0.5, Math.min(scale, 2.6));
     }
@@ -440,9 +451,14 @@ function pintarHoja(colEl, pg, indice) {
 // Dibuja el par de páginas (i, i+1) dentro de una de las dos caras del
 // spread (caraA o caraB). Devuelve la página izquierda (la "focal", la que
 // manda en el índice y en counter/prev/next).
+// Cuántas fojas hay en un "salto" de página: dos enfrentadas, o una sola
+// si el operador eligió el modo de una página (monitores angostos/cuadrados).
+function paso() { return modoUnaPagina ? 1 : 2; }
+
 async function pintarSpreadEnCara(caraEl, i) {
   const pgL = pages[i] || null;
-  const pgR = pages[i + 1] || null;
+  const pgR = modoUnaPagina ? null : (pages[i + 1] || null);
+  caraEl.classList.toggle('una-pagina', modoUnaPagina);
   await Promise.all([pgL, pgR].filter(Boolean).map(pg => renderCanvas(pages.indexOf(pg))));
   pintarHoja(caraEl.querySelector('[data-lado="l"]'), pgL, pgL ? i : null);
   pintarHoja(caraEl.querySelector('[data-lado="r"]'), pgR, pgR ? i + 1 : null);
@@ -451,36 +467,45 @@ async function pintarSpreadEnCara(caraEl, i) {
 
 function actualizarCabeceraPieControles(i, pgL) {
   cur = i;
-  const pgR = pages[i + 1] || null;
+  const pgR = modoUnaPagina ? null : (pages[i + 1] || null);
 
-  const hayDerecha = i + 1 < pages.length;
+  const hayDerecha = !!pgR;
   document.getElementById('counter').textContent = hayDerecha
     ? `fs. ${i + 1}-${i + 2} / ${pages.length}`
     : `fs. ${i + 1} / ${pages.length}`;
   document.getElementById('btnPrev').disabled = i <= 0;
-  document.getElementById('btnNext').disabled = i + 2 >= pages.length;
+  document.getElementById('btnNext').disabled = i + paso() >= pages.length;
   document.querySelectorAll('.index-item').forEach(t => {
     const di = +t.dataset.di;
     t.classList.toggle('on', di === pgL.di || (pgR && di === pgR.di));
   });
   document.getElementById('btnFlag')?.classList.toggle('on', flags.some(f => f.page === i));
 
-  // Precarga silenciosa del próximo par para que el siguiente "pasar
+  // Precarga silenciosa de lo que sigue para que el siguiente "pasar
   // hoja" sea instantáneo — no bloquea nada de lo de arriba.
-  if (i + 2 < pages.length) renderCanvas(i + 2);
-  if (i + 3 < pages.length) renderCanvas(i + 3);
+  if (i + paso() < pages.length) renderCanvas(i + paso());
+  if (!modoUnaPagina && i + paso() + 1 < pages.length) renderCanvas(i + paso() + 1);
 }
 
 // Primera carga, o saltos sin animación de vuelta de hoja (por ejemplo,
 // al abrir el expediente): siempre queda pintado en caraA, en reposo.
 async function render(i) {
-  const objetivo = i - (i % 2);
+  const objetivo = modoUnaPagina ? i : i - (i % 2);
   const pgL = await pintarSpreadEnCara(caraA, objetivo);
   actualizarCabeceraPieControles(objetivo, pgL);
 }
 
 function ultimoIzquierdoValido() {
+  if (modoUnaPagina) return pages.length - 1;
   return pages.length % 2 === 0 ? pages.length - 2 : pages.length - 1;
+}
+
+// Cambia entre dos páginas enfrentadas y una sola — sin animación de
+// vuelta de hoja (es un cambio de disposición, no de lugar en el libro).
+async function cambiarModoPaginas(unaSola) {
+  if (modoUnaPagina === unaSola) return;
+  modoUnaPagina = unaSola;
+  await render(cur);
 }
 
 function esperarTransicion(el) {
@@ -493,7 +518,8 @@ function esperarTransicion(el) {
 
 async function goTo(iSolicitado, dir) {
   if (animating) return;
-  const objetivo = Math.max(0, Math.min(iSolicitado - (iSolicitado % 2), ultimoIzquierdoValido()));
+  const alineado = modoUnaPagina ? iSolicitado : iSolicitado - (iSolicitado % 2);
+  const objetivo = Math.max(0, Math.min(alineado, ultimoIzquierdoValido()));
   if (objetivo === cur) return;
   animating = true;
   try {
@@ -535,14 +561,14 @@ function irADoc(di) {
   if (firstIdx >= 0) goTo(firstIdx, firstIdx > cur ? 'next' : 'prev');
 }
 
-document.getElementById('btnPrev').addEventListener('click', () => goTo(cur - 2, 'prev'));
-document.getElementById('btnNext').addEventListener('click', () => goTo(cur + 2, 'next'));
-document.getElementById('navL').addEventListener('click', () => goTo(cur - 2, 'prev'));
-document.getElementById('navR').addEventListener('click', () => goTo(cur + 2, 'next'));
+document.getElementById('btnPrev').addEventListener('click', () => goTo(cur - paso(), 'prev'));
+document.getElementById('btnNext').addEventListener('click', () => goTo(cur + paso(), 'next'));
+document.getElementById('navL').addEventListener('click', () => goTo(cur - paso(), 'prev'));
+document.getElementById('navR').addEventListener('click', () => goTo(cur + paso(), 'next'));
 document.addEventListener('keydown', e => {
   if (!expActivo || sceneEl.style.display === 'none') return;
-  if (e.key === 'ArrowRight') goTo(cur + 2, 'next');
-  else if (e.key === 'ArrowLeft') goTo(cur - 2, 'prev');
+  if (e.key === 'ArrowRight') goTo(cur + paso(), 'next');
+  else if (e.key === 'ArrowLeft') goTo(cur - paso(), 'prev');
   else if (e.key === 'Home') goTo(0, 'prev');
   else if (e.key === 'End') goTo(pages.length - 1, 'next');
   else if (e.key === 'Escape') cerrarIndice();
@@ -554,7 +580,7 @@ stageEl.addEventListener('pointerup', e => {
   stageEl.classList.remove('dragging');
   if (dragStartX === null) return;
   const dx = e.clientX - dragStartX; dragStartX = null;
-  if (dx < -60) goTo(cur + 2, 'next'); else if (dx > 60) goTo(cur - 2, 'prev');
+  if (dx < -60) goTo(cur + paso(), 'next'); else if (dx > 60) goTo(cur - paso(), 'prev');
 });
 stageEl.addEventListener('pointerleave', () => { stageEl.classList.remove('dragging'); dragStartX = null; });
 
