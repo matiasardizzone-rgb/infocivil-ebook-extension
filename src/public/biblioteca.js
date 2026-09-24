@@ -271,11 +271,26 @@ function buildIndex() {
     const it = document.createElement('div');
     it.className = 'index-item' + (d.esHistorica ? ' hist' : '');
     it.dataset.di = di;
-    it.innerHTML = `<span class="index-num">${String(di + 1).padStart(2, '0')}</span><span>${esc(d.titulo)}</span>`;
-    it.addEventListener('click', () => { irADoc(di); cerrarIndice(); });
+    it.dataset.buscar = (String(di + 1) + ' ' + (d.tipo || '') + ' ' + (d.titulo || '') + ' ' + (d.fecha || '')).toLowerCase();
+    it.innerHTML = `<span class="index-num">${String(di + 1).padStart(3, '0')}</span>` +
+      `<div class="index-body">` +
+      (d.tipo ? `<div class="index-tipo">${esc(d.tipo)}</div>` : '') +
+      `<div class="index-desc">${esc(d.titulo)}</div>` +
+      (d.fecha ? `<div class="index-fecha">${esc(d.fecha)}</div>` : '') +
+      `</div>`;
+    it.addEventListener('click', () => irADoc(di)); // el panel es fijo ahora: no se cierra solo al navegar
     idxList.appendChild(it);
   });
 }
+
+// Buscador del índice: filtra por número, tipo, título o fecha a medida
+// que se escribe — no hace falta salir del índice ni pasar de página.
+document.getElementById('idxSearch').addEventListener('input', function () {
+  const q = this.value.trim().toLowerCase();
+  document.querySelectorAll('.index-item').forEach(it => {
+    it.classList.toggle('filtrado', !!q && !it.dataset.buscar.includes(q));
+  });
+});
 
 // ─────────────────────────── FIRMA ELECTRÓNICA ───────────────────────────
 async function verificarFirmasEnSegundoPlano() {
@@ -286,8 +301,11 @@ async function verificarFirmasEnSegundoPlano() {
     } catch (err) {
       firmasPorDoc[di] = { estado: 'error', firmas: [], detalle: err.message };
     }
-    // Si la página actual pertenece a este documento, refrescamos el badge ya mismo.
-    if (pages[cur] && pages[cur].di === di) actualizarBadgeFirma(di);
+    // actualizarBadgeFirma ya recorre las hojas visibles (izq. y der.) y
+    // no hace nada si ninguna es de este documento — no hace falta
+    // filtrar acá primero (antes solo miraba la izquierda, y la firma de
+    // la derecha podía quedar sin actualizar).
+    actualizarBadgeFirma(di);
   }
 }
 
