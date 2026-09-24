@@ -394,7 +394,7 @@ function actualizarCabeceraPieControles(i, pgL) {
   document.getElementById('shTitulo').title = tituloMostrado;
   document.getElementById('sfUrl').textContent = (doc.urlHiper || '').replace('https://', '');
   document.getElementById('sfDoc').textContent = `Doc. ${pgL.di + 1}/${docsDb.length} · pág ${pgL.p}`;
-  document.getElementById('linkInput').value = doc.urlHiper || '';
+  urlActual = doc.urlHiper || '';
   actualizarBadgeFirma(pgL.di);
 
   const hayDerecha = i + 1 < pages.length;
@@ -427,35 +427,44 @@ function ultimoIzquierdoValido() {
   return pages.length % 2 === 0 ? pages.length - 2 : pages.length - 1;
 }
 
+function esperarTransicion(el) {
+  return new Promise(resolve => {
+    const fin = (e) => { if (e.target !== el) return; el.removeEventListener('transitionend', fin); resolve(); };
+    el.addEventListener('transitionend', fin);
+    setTimeout(resolve, 320); // red de seguridad si transitionend no llega a disparar
+  });
+}
+
 async function goTo(iSolicitado, dir) {
   if (animating) return;
   const objetivo = Math.max(0, Math.min(iSolicitado - (iSolicitado % 2), ultimoIzquierdoValido()));
   if (objetivo === cur) return;
   animating = true;
   try {
-    // La hoja de destino se dibuja DEL OTRO LADO (caraB) mientras el
-    // operador todavía ve caraA — nunca hay un hueco en blanco esperando.
-    const pgL = await pintarSpreadEnCara(caraB, objetivo);
     const avanza = objetivo > cur;
+    // El destino se dibuja en caraB (invisible) MIENTRAS el operador
+    // todavía ve caraA — nunca hay un hueco en blanco esperando.
+    const pgL = await pintarSpreadEnCara(caraB, objetivo);
 
-    await new Promise(r => requestAnimationFrame(r)); // que el navegador pinte caraB antes de arrancar el giro
-    spread3d.classList.add(avanza ? 'girando-adelante' : 'girando-atras');
-    await new Promise(resolve => {
-      const fin = (e) => { if (e.target !== spread3d) return; spread3d.removeEventListener('transitionend', fin); resolve(); };
-      spread3d.addEventListener('transitionend', fin);
-      setTimeout(resolve, 900); // red de seguridad si transitionend no llega a disparar
-    });
+    // 1) La hoja actual se desliza y se desvanece hacia el lado por el
+    //    que "se pasa" (adelante → sale por la izquierda, como si diera
+    //    vuelta; atrás → por la derecha).
+    caraA.classList.add(avanza ? 'sale-izq' : 'sale-der');
+    await esperarTransicion(caraA);
 
-    // caraB ya quedó a la vista (girada). Se copia lo mismo a caraA —
-    // barato, son canvases ya renderizados — y se resetea el giro AL
-    // INSTANTE, sin animación: como las dos caras ya muestran lo mismo,
-    // el reseteo no se nota. Así caraA vuelve a ser "la de reposo" para
-    // la próxima vez, sea cual sea la dirección.
+    // 2) Se copia el contenido de caraB a caraA (barato: son canvases ya
+    //    renderizados, no se vuelve a dibujar el PDF) y se la reubica AL
+    //    INSTANTE del lado opuesto, sin animar — recién ahí se le saca
+    //    esa clase, así la transición que sigue la trae deslizando desde
+    //    el lado contrario al que salió la hoja vieja.
     await pintarSpreadEnCara(caraA, objetivo);
-    spread3d.style.transition = 'none';
-    spread3d.classList.remove('girando-adelante', 'girando-atras');
-    void spread3d.offsetWidth; // forzar reflow antes de reactivar la transición
-    spread3d.style.transition = '';
+    caraA.style.transition = 'none';
+    caraA.classList.remove('sale-izq', 'sale-der');
+    caraA.classList.add(avanza ? 'entra-der' : 'entra-izq');
+    void caraA.offsetWidth; // forzar reflow antes de reactivar la transición
+    caraA.style.transition = '';
+    caraA.classList.remove('entra-der', 'entra-izq');
+    await esperarTransicion(caraA);
 
     actualizarCabeceraPieControles(objetivo, pgL);
   } catch (e) {
@@ -504,16 +513,17 @@ function cerrarIndice() { idxPanel.classList.add('closed'); }
 document.getElementById('btnIndex').addEventListener('click', abrirIndice);
 document.getElementById('idxClose').addEventListener('click', cerrarIndice);
 
-// ─────────────────────────── ENLACE PÚBLICO ───────────────────────────
+// ─────────────────────────── ENLACE PÚBLICO (integrado al pie, no flota) ───────────────────────────
+let urlActual = '';
 document.getElementById('copyBtn').addEventListener('click', function () {
-  const input = document.getElementById('linkInput');
-  navigator.clipboard?.writeText(input.value).catch(() => { input.select(); document.execCommand('copy'); });
-  this.textContent = '✓ Copiado'; this.classList.add('copied');
-  setTimeout(() => { this.textContent = 'Copiar'; this.classList.remove('copied'); }, 1600);
+  if (!urlActual) return;
+  navigator.clipboard?.writeText(urlActual).catch(() => {});
+  const original = this.textContent;
+  this.textContent = '✓'; this.classList.add('copied');
+  setTimeout(() => { this.textContent = original; this.classList.remove('copied'); }, 1600);
 });
 document.getElementById('openBtn').addEventListener('click', () => {
-  const url = document.getElementById('linkInput').value;
-  if (url) window.open(url, '_blank');
+  if (urlActual) window.open(urlActual, '_blank');
 });
 
 // ─────────────────────────── BANDERITAS LIBRES (persistentes de verdad) ───────────────────────────
