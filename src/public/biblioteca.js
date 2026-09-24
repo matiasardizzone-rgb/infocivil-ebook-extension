@@ -461,12 +461,14 @@ sheet.addEventListener('pointerleave', () => { sheet.classList.remove('dragging'
 
 // ─────────────────────────── ÍNDICE DESLIZABLE ───────────────────────────
 const idxPanel = document.getElementById('idxPanel');
-const idxOverlay = document.getElementById('idxOverlay');
-function abrirIndice() { idxPanel.classList.add('open'); idxOverlay.classList.add('open'); }
-function cerrarIndice() { idxPanel.classList.remove('open'); idxOverlay.classList.remove('open'); }
+
+// El panel ahora es fijo (visible por defecto, empuja el libro en vez de
+// taparlo): "cerrarlo" solo lo angosta a 0 para darle más lugar a la
+// página, no lo saca de encima de nada.
+function abrirIndice() { idxPanel.classList.remove('closed'); }
+function cerrarIndice() { idxPanel.classList.add('closed'); }
 document.getElementById('btnIndex').addEventListener('click', abrirIndice);
 document.getElementById('idxClose').addEventListener('click', cerrarIndice);
-idxOverlay.addEventListener('click', cerrarIndice);
 
 // ─────────────────────────── ENLACE PÚBLICO ───────────────────────────
 document.getElementById('copyBtn').addEventListener('click', function () {
