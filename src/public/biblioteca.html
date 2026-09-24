@@ -183,18 +183,47 @@
   .nav-zone:hover::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.05),transparent)}
   .nav-zone.r:hover::after{background:linear-gradient(270deg,rgba(0,0,0,.05),transparent)}
 
-  .toolbar{flex-shrink:0;display:flex;align-items:center;gap:10px;padding:10px 16px 14px}
-  .toolbar button{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);color:#e6edf8;width:30px;height:30px;border-radius:6px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:background .15s}
-  .toolbar button:hover{background:rgba(255,255,255,.18)}
-  .toolbar button:disabled{opacity:.3;cursor:default}
-  .counter{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:#dbe6f5;background:rgba(255,255,255,.07);padding:5px 10px;border-radius:5px;min-width:92px;text-align:center}
-  .idx-btn{background:rgba(255,255,255,.1)!important;width:auto!important;padding:0 12px!important;font-size:11.5px!important;font-family:'Inter',sans-serif;gap:6px;font-weight:600}
-  select#zoomSel{border:1px solid rgba(255,255,255,.14);color:#e6edf8;height:30px;border-radius:6px;outline:none}
-  select#zoomSel option{color:#1a2a3a}
-  .home-btn{margin-left:auto}
+  /* Barra de controles flotante, en píldora, colgando del borde inferior
+     del libro (no una fila más dentro de la tapa) — separada del
+     contenido, como el "Página X de Y" de arriba. */
+  .toolbar{
+    position:absolute;left:50%;bottom:14px;transform:translateX(-50%);
+    display:flex;align-items:center;gap:7px;
+    background:rgba(255,255,255,.97);padding:9px 14px;border-radius:30px;
+    box-shadow:0 10px 34px rgba(0,0,0,.35);z-index:10;
+    max-width:calc(100% - 28px);flex-wrap:wrap;justify-content:center;
+  }
+  .toolbar button{background:#eef2f7;border:1px solid #dbe3ee;color:var(--cover-navy);width:30px;height:30px;border-radius:20px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:background .15s}
+  .toolbar button:hover{background:var(--accent-soft);border-color:var(--accent)}
+  .toolbar button:disabled{opacity:.35;cursor:default}
 
-  .index-panel{position:absolute;left:0;top:0;bottom:0;width:280px;background:#fbf8f0;border-right:1px solid var(--paper-shadow);box-shadow:12px 0 30px rgba(0,0,0,.35);transform:translateX(-100%);transition:transform .25s cubic-bezier(.2,0,.2,1);z-index:20;display:flex;flex-direction:column;border-radius:3px 0 0 3px}
-  .index-panel.open{transform:translateX(0)}
+  .idx-btn{background:#eef2f7!important;border:1px solid #dbe3ee!important;color:var(--cover-navy)!important;width:auto!important;padding:0 13px!important;border-radius:20px!important;font-size:11.5px!important;font-family:'Inter',sans-serif;gap:6px;font-weight:600}
+  .idx-btn:hover{background:var(--accent-soft)!important;border-color:var(--accent)!important}
+  select#zoomSel{border:1px solid #dbe3ee;color:var(--cover-navy);height:30px;border-radius:20px;outline:none;background:#eef2f7;padding:0 6px}
+  .home-btn{margin-left:4px}
+
+  /* "fs. X / Y" flotando arriba del libro, como una insignia aparte. */
+  .page-badge{
+    position:fixed;top:22px;left:50%;transform:translateX(-50%);
+    font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:600;
+    color:var(--cover-navy);background:rgba(255,255,255,.97);
+    padding:9px 22px;border-radius:30px;box-shadow:0 8px 26px rgba(0,0,0,.3);
+    z-index:30;
+  }
+
+  /* Panel lateral fijo (no un desplegable encima del libro): columna
+     flex más, hermana de .book dentro de .scene — empuja el libro en vez
+     de taparlo. width:0 al "cerrar" en vez de deslizarse fuera de
+     pantalla, para poder darle más lugar a la página sin perder el
+     índice del todo (el botón "Índice" vuelve a abrirlo). */
+  .index-panel{
+    width:280px;flex-shrink:0;overflow:hidden;
+    background:#fbf8f0;box-shadow:0 0 0 1px var(--paper-shadow);
+    border-radius:6px 0 0 6px;
+    display:flex;flex-direction:column;
+    transition:width .22s cubic-bezier(.2,0,.2,1),opacity .18s;
+  }
+  .index-panel.closed{width:0;opacity:0}
   .index-head{padding:16px 18px 12px;border-bottom:1px solid var(--paper-shadow);display:flex;align-items:center;justify-content:space-between}
   .index-head h2{font-family:'Source Serif 4',serif;font-size:14px;color:var(--cover-navy)}
   .index-head .cnt{font-size:10.5px;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace}
@@ -206,8 +235,10 @@
   .index-item.hist.on{background:#fff3d1;border-left-color:var(--gold)}
   .index-num{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#fff;min-width:26px;text-align:center;padding:2px 4px;border-radius:3px;background:var(--accent);flex-shrink:0}
   .index-item.hist .index-num{background:var(--gold)}
-  .index-overlay{position:absolute;inset:0;background:rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:opacity .2s;z-index:15}
-  .index-overlay.open{opacity:1;pointer-events:auto}
+  /* Ya no tapa el libro (el panel ahora empuja en vez de superponerse):
+     el elemento queda, sin efecto visual, solo para no tocar el JS que
+     ya lo referencia. */
+  .index-overlay{display:none}
 
   .link-tag{position:absolute;right:-4px;bottom:38px;width:250px;background:#fffdf6;border:1px solid var(--paper-shadow);border-radius:6px 3px 3px 6px;box-shadow:6px 8px 18px rgba(0,0,0,.35),-1px 0 0 rgba(0,0,0,.05);padding:11px 12px 12px;z-index:10;transform:rotate(1.2deg)}
   .link-tag::before{content:'📎';position:absolute;top:-11px;left:14px;font-size:16px;filter:drop-shadow(0 2px 2px rgba(0,0,0,.3))}
@@ -333,6 +364,14 @@
 </div>
 
 <div class="scene" style="display:none" id="scene">
+  <div class="index-panel" id="idxPanel">
+    <div class="index-head">
+      <div><h2>Tabla de actuaciones</h2><div class="cnt" id="idxCount"></div></div>
+      <button class="index-close" id="idxClose" title="Angostar el panel">✕</button>
+    </div>
+    <div class="index-list" id="idxList"></div>
+  </div>
+
   <div class="tab-rail" id="tabRail"></div>
 
   <div class="book">
@@ -370,9 +409,10 @@
       <div class="flag-rail" id="flagRail"></div>
     </div>
 
+    <div class="page-badge" id="counter">fs. — / —</div>
+
     <div class="toolbar">
       <button id="btnPrev">‹</button>
-      <div class="counter" id="counter">fs. — / —</div>
       <button id="btnNext">›</button>
       <select id="zoomSel" class="idx-btn" style="cursor:pointer">
         <option value="1">100%</option>
@@ -400,14 +440,6 @@
       <button class="idx-btn home-btn" id="btnHome">📚 Biblioteca</button>
     </div>
 
-    <div class="index-overlay" id="idxOverlay"></div>
-    <div class="index-panel" id="idxPanel">
-      <div class="index-head">
-        <div><h2>Tabla de actuaciones</h2><div class="cnt" id="idxCount"></div></div>
-        <button class="index-close" id="idxClose">✕</button>
-      </div>
-      <div class="index-list" id="idxList"></div>
-    </div>
   </div>
 
   <div class="link-tag">

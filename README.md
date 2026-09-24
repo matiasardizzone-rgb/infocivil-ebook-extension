@@ -196,14 +196,24 @@ un expediente enorme podría no llegar. Desde Chrome 110 no pasa.
 Siguiente, en este orden:
 - [ ] Lectura continua dentro del lector (portar del paquete fusionado) y
       agregarla a la pantalla del expediente.
-- [ ] Lector real con el diseño del artefacto web: panel lateral con el
-      índice de actuaciones (descripción, no solo número), páginas más
-      grandes, y unificar el color de las barras superior e inferior en
-      azul (línea con el resto de Infocivil). Referencia: el lector viejo
-      del portal web (`Infocivil-Ebook-Portable`).
 - [ ] `buscarYAbrir` desde la landing.
 - [ ] Integrar `lector.html` (transición realista) al lector de la biblioteca.
 - [ ] EPUB.
 - [ ] LEX100 (falta el dominio y el formato de URL de actuación).
+
+**Resuelto — rediseño del lector (panel lateral + controles flotantes).**
+Se combinaron dos referencias de diseño: el panel de índice ya existía
+(`#idxPanel`, con título/fecha/descripción por actuación) pero era un
+desplegable que tapaba el libro — ahora es una columna fija, siempre
+visible, hermana de `.book` dentro del `display:flex` que `.scene` ya
+tenía (el libro se corre, no se tapa). "Cerrarlo" angosta a 0 en vez de
+deslizarse fuera de pantalla, así se puede recuperar espacio sin perder
+el acceso. La barra de herramientas pasa de una fila fija dentro de la
+tapa a una píldora flotante colgando del borde inferior del libro
+(dentro de sus límites, no fuera — así no se corta contra el borde de la
+pantalla en ventanas más bajas). El contador de fojas se separa en su
+propia insignia flotante arriba, estilo "Página X de Y". El cuadro de
+"Enlace público SCW" no se tocó (ya gustaba tal cual). El fondo con
+degradé azul institucional ya existía desde el principio.
 
 Fuera de alcance: OCR, IA, integración con Infocivil LM.
