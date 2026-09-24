@@ -1,5 +1,5 @@
 import * as db from '../lib/db.js';
-import { generarPdfUnificado } from '../lib/unificador.js';
+import { generarPdfUnificado, generarIndiceHipervinculado } from '../lib/unificador.js';
 import { iniciarCanalExterno } from './externo.js';
 import { iniciarConsultas, iniciarAperturaVinculados } from './consulta.js';
 import { PDFDocument } from '../../vendor/pdf-lib.esm.js';
@@ -112,6 +112,55 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
       } catch (err) {
         console.error('[PJN BG] Error armando PDF unificado:', err);
         chrome.storage.local.set({ unificadoProgreso: { terminado: true, error: err.message } });
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  // Índice hipervinculado standalone: a diferencia del PDF unificado, no
+  // copia ninguna página de ninguna actuación — cada entrada enlaza al
+  // enlace público en el SCW, no a otra página de este mismo PDF. No hace
+  // falta volver a descargar nada (solo título/fecha/tipo/enlace público,
+  // ya guardados), así que funciona incluso sin pestaña del SCW abierta —
+  // a diferencia de PDF unificado y ZIP.
+  if (message.action === 'descargarIndiceHipervinculado') {
+    (async () => {
+      try {
+        const actuaciones = message.actuaciones || [];
+        const tituloExpediente = message.tituloExpediente || 'Expediente';
+        if (!actuaciones.length) { sendResponse({ ok: false, error: 'No hay actuaciones para el índice.' }); return; }
+
+        const pdfBytes = await generarIndiceHipervinculado({
+          tituloExpediente, actuaciones,
+          historicasFaltantes: !!message.historicasFaltantes,
+          paginacionIncompleta: !!message.paginacionIncompleta,
+        });
+        const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+
+        let url;
+        if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+          url = URL.createObjectURL(blob);
+        } else {
+          const b64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          url = 'data:application/pdf;base64,' + b64;
+        }
+
+        const nombreArchivo = sanitizarNombre(tituloExpediente).slice(0, 50) + '_INDICE.pdf';
+        chrome.downloads.download({ url, filename: nombreArchivo, saveAs: true }, () => {
+          if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function' && url.indexOf('blob:') === 0) {
+            setTimeout(() => URL.revokeObjectURL(url), 30000);
+          }
+        });
+
+        sendResponse({ ok: true, total: actuaciones.length });
+      } catch (err) {
+        console.error('[PJN BG] Error armando índice hipervinculado:', err);
         sendResponse({ ok: false, error: err.message });
       }
     })();

@@ -315,6 +315,23 @@ document.querySelector('[data-formato="zip"]').addEventListener('click', () => e
   estado('✓ ZIP listo: se abrió el diálogo para guardarlo.', 'ok');
 }));
 
+// A diferencia de PDF unificado y ZIP, no necesita pestaña del SCW: no
+// vuelve a descargar ningún documento, solo arma una lista con lo que ya
+// se tiene (título/fecha/enlace público) — funciona igual viniendo de una
+// consulta en vivo o de "← Volver".
+document.getElementById('btnIndiceHiper').addEventListener('click', () => ejecutar(async () => {
+  const actuaciones = exp.actuaciones.length ? exp.actuaciones : exp.archivos;
+  const r = await new Promise(res => chrome.runtime.sendMessage({
+    action: 'descargarIndiceHipervinculado',
+    actuaciones,
+    tituloExpediente: exp.tituloExpediente || exp.folderName || exp.nombre,
+    historicasFaltantes: exp.historicasFaltantes,
+    paginacionIncompleta: exp.paginacionIncompleta,
+  }, res));
+  if (!r || !r.ok) throw new Error((r && r.error) || 'No se pudo generar el índice.');
+  estado('✓ Índice hipervinculado listo (' + r.total + ' actuaciones). Se abrió el diálogo para guardarlo.', 'ok');
+}));
+
 document.querySelector('[data-formato="unificado-indice"]').addEventListener('click', () => ejecutar(async () => {
   if (!exp.tabId) { estado('Para generar el PDF unificado hace falta volver a consultar el expediente.', 'error'); return; }
   if (!confirmarCompletitud()) return;
@@ -356,7 +373,7 @@ document.querySelector('[data-formato="unificado-indice"]').addEventListener('cl
     folderName: expediente.folderName,
     tituloExpediente: expediente.caratula,
     archivos: documentos.map(d => ({ titulo: d.titulo, esHistorica: d.esHistorica })),
-    actuaciones: documentos.map(d => ({ titulo: d.titulo, fecha: d.fecha, tipo: d.tipo, esHistorica: d.esHistorica })),
+    actuaciones: documentos.map(d => ({ titulo: d.titulo, fecha: d.fecha, tipo: d.tipo, esHistorica: d.esHistorica, urlPublica: d.urlHiper })),
     aviso: '', paginacionIncompleta: false, historicasFaltantes: false,
     vinculados: [],
   };
