@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Infocivil Ebook — Mis Expedientes</title>
+<link rel="stylesheet" href="estilos.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -45,49 +46,46 @@
   }
 
   /* ══════════════════════════ BIBLIOTECA ══════════════════════════ */
-  .library{
-    position:absolute;inset:0;z-index:50;
-    display:flex;align-items:center;justify-content:center;
-    opacity:1;pointer-events:auto;transition:opacity .25s;
-  }
+  /* Página completa, con la misma barra superior que inicio.html (clases
+     de estilos.css: .barra/.barra-contenido/etc) — antes era un panel
+     modal flotante con su propia estética de tapa de libro; ahora
+     combina con el resto de la extensión, como pidió el operador. */
+  .library{position:absolute;inset:0;z-index:50;background:var(--fondo);
+    display:flex;flex-direction:column;opacity:1;pointer-events:auto;transition:opacity .2s;overflow-y:auto}
   .library.hidden{opacity:0;pointer-events:none}
-  .lib-panel{
-    width:min(94vw,980px);height:min(90vh,700px);
-    background:linear-gradient(170deg,#f8f4e9,#efe8d5);
-    border-radius:10px;box-shadow:0 40px 80px rgba(0,0,0,.5);
-    display:flex;flex-direction:column;overflow:hidden;
-    border:1px solid rgba(0,0,0,.08);
-  }
-  .lib-head{
-    background:linear-gradient(160deg,var(--cover-navy),var(--cover-navy-deep));
-    color:#fff;padding:20px 28px;display:flex;align-items:center;gap:14px;flex-shrink:0;
-  }
-  .lib-head .esc{font-size:26px}
-  .lib-head h1{font-family:'Source Serif 4',serif;font-size:18px;font-weight:700}
-  .lib-head p{font-size:11px;color:#a8c4e8;margin-top:1px}
-  .lib-head .lib-count{margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#cfe0f5;background:rgba(255,255,255,.1);padding:6px 12px;border-radius:14px}
 
-  .lib-body{flex:1;overflow-y:auto;padding:22px 28px 30px}
-  .lib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+  .lib-body{max-width:1100px;width:100%;margin:0 auto;padding:28px 24px 40px;flex:1}
+  .lib-body h1{font-family:'Inter',sans-serif;font-size:19px;font-weight:700;color:var(--texto);margin-bottom:4px}
+  .lib-sub{font-size:12px;color:var(--texto-tenue);margin-bottom:20px;display:flex;align-items:center;gap:14px}
+  .lib-sub .lib-count{font-family:'IBM Plex Mono',monospace}
+  .lib-sub .btn-limpiar{margin-left:auto}
+
+  .lib-grid{display:flex;flex-direction:column;gap:12px}
 
   .lib-card{
-    background:#fffdf7;border:1px solid var(--paper-shadow);border-radius:3px 8px 8px 3px;
-    box-shadow:0 4px 10px rgba(0,0,0,.1);position:relative;padding:16px 16px 14px;
-    display:flex;flex-direction:column;gap:8px;cursor:pointer;transition:transform .12s, box-shadow .12s;
-    border-left:5px solid var(--accent);
+    background:#fff;border:1px solid var(--borde-suave);border-radius:var(--radio);
+    box-shadow:var(--sombra);padding:16px 18px;
+    display:flex;align-items:center;gap:16px;cursor:pointer;transition:box-shadow .12s;
   }
-  .lib-card:hover{transform:translateY(-2px);box-shadow:0 10px 20px rgba(0,0,0,.18)}
-  .lib-card.new{border-left-color:var(--warn)}
-  .lib-card .lc-num{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:var(--accent)}
-  .lib-card.new .lc-num{color:var(--warn)}
-  .lib-card .lc-title{font-family:'Source Serif 4',serif;font-size:14px;font-weight:600;line-height:1.35;color:var(--ink)}
-  .lib-card .lc-meta{font-size:10.5px;color:var(--ink-soft);display:flex;gap:10px;flex-wrap:wrap}
-  .lib-badge{
-    align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:700;
-    padding:3px 9px;border-radius:10px;letter-spacing:.3px;
+  .lib-card:hover{box-shadow:0 4px 16px rgba(26,58,107,.18)}
+  .lib-card-info{flex:1;min-width:0}
+  .lib-card .lc-num{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:var(--texto-tenue)}
+  .lib-card .lc-title{font-family:'Inter',sans-serif;font-size:14.5px;font-weight:700;line-height:1.35;color:var(--texto);margin:2px 0 4px}
+  .lib-card .lc-meta{font-size:11.5px;color:var(--azul);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .lib-card .lc-meta .lc-badge{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;color:var(--error);
   }
-  .lib-badge.ok{background:#e6f4ea;color:var(--ok)}
-  .lib-badge.new{background:#fdeae1;color:var(--warn)}
+  .lc-actions{display:flex;align-items:center;gap:14px;flex-shrink:0}
+  .lc-actions button[data-open]{
+    background:#fff;border:1px solid var(--borde);color:var(--azul);font-weight:600;
+    padding:7px 16px;border-radius:6px;cursor:pointer;font-family:'Inter',sans-serif;font-size:12.5px;
+  }
+  .lc-actions button[data-open]:hover{background:var(--azul-palido)}
+  .lc-actions button.lc-texto{background:none;border:none;color:var(--azul);cursor:pointer;font-family:'Inter',sans-serif;font-size:12.5px}
+  .lc-actions button.lc-texto:hover{text-decoration:underline}
+  .lc-actions button.lc-icon{background:none;border:none;color:var(--texto-tenue);cursor:pointer;font-size:14px;padding:2px}
+  .lc-actions button.lc-icon:hover{color:var(--azul)}
+  .lib-badge{display:none} /* el aviso de novedades ahora es .lc-badge, en línea con la fecha */
   .lib-badge.checking{background:#eef0f3;color:var(--ink-soft)}
   .lc-actions{display:flex;gap:7px;margin-top:4px}
   .lc-actions button{
@@ -387,19 +385,29 @@
 <body>
 
 <div class="library" id="library" style="display:none">
-  <div class="lib-panel">
-    <div class="lib-head">
-      <div class="esc">📚</div>
+  <header class="barra">
+    <div class="barra-contenido">
+      <svg class="escudo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <path d="M12 3v18M7 7h10M5 7l-2.5 6a3.5 3.5 0 0 0 5 0L5 7zM19 7l-2.5 6a3.5 3.5 0 0 0 5 0L19 7z"/>
+        <path d="M8 21h8"/>
+      </svg>
       <div>
-        <h1>Mis expedientes descargados</h1>
-        <p>Guardados localmente en este navegador · funcionan sin conexión al SCW</p>
+        <div class="barra-titulo">Infocivil Ebook</div>
+        <div class="barra-sub">Poder Judicial de la Nación · Cámara Civil</div>
       </div>
-      <div class="lib-count" id="libCount">— guardados</div>
+      <div class="barra-acciones">
+        <a class="barra-link" href="inicio.html">Nueva consulta</a>
+      </div>
+    </div>
+  </header>
+  <div class="lib-body">
+    <h1>Mis expedientes</h1>
+    <div class="lib-sub">
+      <span>Guardados en este navegador. No se almacenan en el servidor.</span>
+      <span class="lib-count" id="libCount">— guardados</span>
       <button class="btn-limpiar" id="btnLimpiar">🧹 Limpiar biblioteca</button>
     </div>
-    <div class="lib-body">
-      <div class="lib-grid" id="libGrid"></div>
-    </div>
+    <div class="lib-grid" id="libGrid"></div>
   </div>
 </div>
 

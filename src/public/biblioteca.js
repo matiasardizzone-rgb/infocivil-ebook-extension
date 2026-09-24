@@ -42,22 +42,23 @@ async function cargarBiblioteca() {
   expedientes.forEach(exp => {
     const card = document.createElement('div');
     card.className = 'lib-card' + (exp.estado === 'nuevo' ? ' new' : '');
+    const avisoIni = textoEstado(exp.estado === 'nuevo' ? exp.nuevasDetectadas : 0, exp.eliminadasDetectadas || 0);
     card.innerHTML = `
-      <div class="lc-num">${esc(exp.numero || exp.cid)}</div>
-      <div class="lc-title">${esc(exp.caratula || '(sin carátula detectada)')}</div>
-      <div class="lc-meta">
-        <span>📄 ${exp.cantidadActuaciones || 0} actuaciones</span>
-        <span>💾 ${fechaCorta(exp.fechaDescarga)}</span>
+      <div class="lib-card-info">
+        <div class="lc-num">${esc(exp.numero || exp.cid)}</div>
+        <div class="lc-title">${esc(exp.caratula || '(sin carátula detectada)')}</div>
+        <div class="lc-meta">
+          <span>${exp.cantidadActuaciones || 0} actuaciones</span>
+          <span>· visto por última vez el ${fechaCorta(exp.fechaVerificacion || exp.fechaDescarga)}</span>
+          <span class="lc-badge" data-badge${avisoIni ? '' : ' hidden'}>${esc(avisoIni)}</span>
+        </div>
+        <div class="lib-bar" style="display:none"><div class="lib-bar-fill" data-bar></div></div>
       </div>
-      <span class="lib-badge ${exp.estado === 'nuevo' || exp.eliminadasDetectadas > 0 ? 'new' : 'ok'}" data-badge>
-        ${textoEstado(exp.estado === 'nuevo' ? exp.nuevasDetectadas : 0, exp.eliminadasDetectadas || 0)}
-      </span>
-      <div class="lib-bar" style="display:none"><div class="lib-bar-fill" data-bar></div></div>
       <div class="lc-actions">
+        <button data-verify class="lc-icon" title="${exp.estado === 'nuevo' ? 'Actualizar biblioteca' : 'Chequear si hay novedades en el SCW'}">${exp.estado === 'nuevo' ? '⬇️' : '🔄'}</button>
+        <button data-zip class="lc-icon" title="Exportar como ZIP">📦</button>
         <button data-open>Abrir</button>
-        <button data-verify class="verify">${exp.estado === 'nuevo' ? 'Actualizar' : 'Verificar'}</button>
-        <button data-zip title="Exportar como ZIP" style="flex:0 0 auto;padding:6px 9px">⬇️</button>
-        <button data-del title="Eliminar de la biblioteca" style="flex:0 0 auto;padding:6px 9px">🗑</button>
+        <button data-del class="lc-texto" title="Eliminar de la biblioteca">Quitar</button>
       </div>
     `;
     card.querySelector('[data-open]').addEventListener('click', e => { e.stopPropagation(); abrirExpediente(exp.cid); });
@@ -90,7 +91,7 @@ function textoEstado(nuevas, eliminadas) {
   const partes = [];
   if (nuevas > 0) partes.push('🔴 ' + nuevas + (nuevas === 1 ? ' actuación nueva' : ' actuaciones nuevas'));
   if (eliminadas > 0) partes.push('⚠️ ' + eliminadas + (eliminadas === 1 ? ' ya no figura' : ' ya no figuran') + ' en el SCW');
-  return partes.length ? partes.join(' · ') : '✓ Al día';
+  return partes.join(' · '); // vacío = al día, no se muestra nada (el aviso de novedades es la excepción, no el estado normal)
 }
 
 function fechaCorta(iso) {
@@ -99,12 +100,18 @@ function fechaCorta(iso) {
 }
 function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
+// Muestra/oculta el aviso de novedades de una tarjeta (texto vacío = al
+// día, no se muestra nada — la excepción es la novedad, no el estado normal).
+function fijarAviso(badge, texto) {
+  badge.textContent = texto;
+  badge.hidden = !texto;
+}
+
 // Verificar: abre (o reusa) la pestaña del SCW, escanea liviano, compara.
 async function verificarExpediente(exp, card) {
   const badge = card.querySelector('[data-badge]');
   const btn = card.querySelector('[data-verify]');
-  badge.className = 'lib-badge checking';
-  badge.textContent = '⏳ Verificando en el SCW...';
+  fijarAviso(badge, '⏳ Verificando en el SCW...');
   btn.disabled = true;
   try {
     const r = await chrome.runtime.sendMessage({ action: 'bibliotecaVerificarEnVivo', cid: exp.cid });
@@ -113,13 +120,12 @@ async function verificarExpediente(exp, card) {
     exp.nuevasDetectadas = r.nuevasDetectadas || 0;
     card.classList.toggle('new', r.cambio);
     exp.eliminadasDetectadas = r.eliminadasDetectadas || 0;
-    badge.className = 'lib-badge ' + (r.cambio ? 'new' : 'ok');
-    badge.textContent = textoEstado(r.nuevasDetectadas || 0, r.eliminadasDetectadas || 0);
+    fijarAviso(badge, textoEstado(r.nuevasDetectadas || 0, r.eliminadasDetectadas || 0));
     if (r.criterio === 'cantidad') badge.title = 'Comparado por cantidad de actuaciones (los links públicos no coincidieron).';
-    btn.textContent = r.cambio ? 'Actualizar' : 'Verificar';
+    btn.textContent = r.cambio ? '⬇️' : '🔄';
+    btn.title = r.cambio ? 'Actualizar biblioteca' : 'Chequear si hay novedades en el SCW';
   } catch (err) {
-    badge.className = 'lib-badge new';
-    badge.textContent = '❌ ' + err.message;
+    fijarAviso(badge, '❌ ' + err.message);
   }
   btn.disabled = false;
 }
@@ -131,8 +137,7 @@ async function actualizarExpediente(exp, card) {
   const btn = card.querySelector('[data-verify]');
   const barWrap = card.querySelector('.lib-bar');
   const barFill = card.querySelector('[data-bar]');
-  badge.className = 'lib-badge checking';
-  badge.textContent = '⏳ Actualizando biblioteca...';
+  fijarAviso(badge, '⏳ Actualizando biblioteca...');
   btn.disabled = true;
   barWrap.style.display = 'block';
 
@@ -158,15 +163,16 @@ async function actualizarExpediente(exp, card) {
     exp.estado = 'ok'; exp.nuevasDetectadas = 0;
     exp.cantidadActuaciones = actualizado ? actualizado.cantidadActuaciones : exp.cantidadActuaciones;
     exp.fechaDescarga = actualizado ? actualizado.fechaDescarga : exp.fechaDescarga;
+    exp.fechaVerificacion = actualizado ? actualizado.fechaVerificacion : exp.fechaVerificacion;
     card.classList.remove('new');
-    badge.className = 'lib-badge ok';
-    badge.textContent = '✓ Al día';
-    btn.textContent = 'Verificar';
-    card.querySelector('.lc-meta').innerHTML =
-      `<span>📄 ${exp.cantidadActuaciones} actuaciones</span><span>💾 ${fechaCorta(exp.fechaDescarga)}</span>`;
+    fijarAviso(badge, '');
+    btn.textContent = '🔄';
+    btn.title = 'Chequear si hay novedades en el SCW';
+    const meta = card.querySelector('.lc-meta');
+    meta.querySelector('span:first-child').textContent = exp.cantidadActuaciones + ' actuaciones';
+    meta.querySelectorAll('span')[1].textContent = '· visto por última vez el ' + fechaCorta(exp.fechaVerificacion || exp.fechaDescarga);
   } catch (err) {
-    badge.className = 'lib-badge new';
-    badge.textContent = '❌ ' + err.message;
+    fijarAviso(badge, '❌ ' + err.message);
   }
   btn.disabled = false;
   barWrap.style.display = 'none';
