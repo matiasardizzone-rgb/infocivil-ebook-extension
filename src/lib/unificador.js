@@ -292,7 +292,15 @@ function dibujarPortadaEIndice(pdf, paginas, capPortada, capCont, startYPortada,
     page.drawText(linea, {
       x: MARGIN, y, size: INDICE_FONT_SIZE, font: fontRegular, color: rgb(0, 0, 0.55),
     });
-    anotacionInterna(pdf, page, [MARGIN - 2, y - 3, MARGIN + w + 2, y + 10], entrada.destPageRef);
+    // Dos usos de esta misma función: el índice del PDF unificado enlaza
+    // A OTRA PÁGINA de ese mismo PDF (destPageRef); el índice hipervinculado
+    // standalone (generarIndiceHipervinculado, sin contenido propio) enlaza
+    // directo al enlace público de cada actuación en el SCW (urlPublica).
+    if (entrada.destPageRef) {
+      anotacionInterna(pdf, page, [MARGIN - 2, y - 3, MARGIN + w + 2, y + 10], entrada.destPageRef);
+    } else if (entrada.urlPublica) {
+      anotacionUri(pdf, page, [MARGIN - 2, y - 3, MARGIN + w + 2, y + 10], entrada.urlPublica);
+    }
 
     y -= INDICE_STEP;
     usadosEnPagina++;
@@ -389,6 +397,66 @@ export async function generarPdfUnificado({ tituloExpediente, actuaciones, histo
 
   pdf.setTitle(titulo);
   pdf.setSubject('Expediente judicial unificado — Infocivil Ebook');
+  pdf.setCreator('Infocivil Ebook');
+  pdf.setProducer('Infocivil Ebook (pdf-lib)');
+
+  return pdf.save();
+}
+
+// ─── Índice hipervinculado standalone (sin el contenido) ──────────────────
+// Mismo aspecto que la portada+índice del PDF unificado, pero SIN copiar
+// ninguna página de ninguna actuación — cada entrada es un link al enlace
+// público de esa actuación en el SCW, no a otra página de este mismo PDF.
+// Al no necesitar los bytes de cada PDF, no hace falta volver a descargar
+// nada: funciona con solo lo que ya está guardado (título/fecha/tipo/
+// enlace público), incluso sin una pestaña del SCW abierta.
+// actuaciones: [{ numero, titulo, fecha, tipo, descripcion, urlPublica }]
+export async function generarIndiceHipervinculado({ tituloExpediente, actuaciones, historicasFaltantes, paginacionIncompleta }) {
+  const titulo = limpiarTextoPDF(tituloExpediente) || 'Expediente';
+  const ordenadas = ordenarPorFechaAsc(actuaciones);
+
+  const lineasAdvertencia = [];
+  if (historicasFaltantes) {
+    lineasAdvertencia.push(
+      'ADVERTENCIA: no se cargaron actuaciones históricas de este expediente: pueden faltar',
+      'actuaciones anteriores a la primera actuación listada abajo (p. ej. la demanda inicial).'
+    );
+  }
+  if (paginacionIncompleta) {
+    lineasAdvertencia.push(
+      'ADVERTENCIA: el recorrido de páginas de actuaciones se cortó antes de tiempo (demora del',
+      'sistema) — pueden faltar actuaciones más viejas que las incluidas en este índice.'
+    );
+  }
+
+  const pdf = await PDFDocument.create();
+  const fontRegular = await pdf.embedFont(StandardFonts.Helvetica);
+  const fontBold    = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const tituloLineas = envolverTexto(fontBold, 18, titulo, A4[0] - 2 * MARGIN, 4);
+
+  const { paginas, capPortada, capCont, startYPortada } =
+    reservarPaginasIndice(pdf, ordenadas.length, lineasAdvertencia, tituloLineas.length - 1);
+
+  let numero = 1;
+  const entradas = ordenadas.map(act => {
+    const tipo = limpiarTextoPDF(act.tipo || '');
+    const descripcion = limpiarTextoPDF(act.descripcion || '');
+    const tituloCorto = (tipo || descripcion)
+      ? [tipo, descripcion].filter(Boolean).join(' - ')
+      : (limpiarTextoPDF(act.titulo) || ('Actuación ' + numero));
+    const entrada = {
+      titulo: tituloCorto,
+      fecha: limpiarTextoPDF(act.fecha || ''),
+      urlPublica: limpiarTextoPDF(act.urlPublica || act.url || ''),
+    };
+    numero++;
+    return entrada;
+  });
+
+  dibujarPortadaEIndice(pdf, paginas, capPortada, capCont, startYPortada, fontBold, fontRegular, tituloLineas, entradas, lineasAdvertencia);
+
+  pdf.setTitle('Índice — ' + titulo);
+  pdf.setSubject('Índice hipervinculado de actuaciones — Infocivil Ebook');
   pdf.setCreator('Infocivil Ebook');
   pdf.setProducer('Infocivil Ebook (pdf-lib)');
 
