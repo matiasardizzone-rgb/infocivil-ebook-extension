@@ -201,6 +201,32 @@ Siguiente, en este orden:
 - [ ] EPUB.
 - [ ] LEX100 (falta el dominio y el formato de URL de actuación).
 
+**v1.1.0 — dos páginas lado a lado + vuelta de hoja real (giro 3D), sin
+el riel de pestañas.** Tres pedidos del operador sobre el lector de
+v1.0.0:
+- Se sacó el riel angosto de pestañas por actuación (`.tab-rail`) y el
+  cordón rojo decorativo al lado (`.cord-col`): quedaban redundantes con
+  el panel de índice, que ya hace lo mismo con más información y siempre
+  visible.
+- El libro ahora muestra DOS páginas a la vez, lado a lado con un lomo en
+  el medio (`.leaf-l`/`.leaf-r` dentro de `.cara`), no una sola hoja con
+  membrete — y con el espacio que liberó sacar el riel, cada página se ve
+  más grande. La navegación pasa a moverse de a 2 (`goTo(cur±2, ...)`).
+- Vuelta de hoja de verdad: `.spread-3d` gira como una tarjeta rígida
+  completa (dos caras con `backface-visibility:hidden`, no cada hoja por
+  separado) — se prerrenderiza el próximo par en la cara de atrás
+  mientras se ve la de adelante, gira con perspectiva 3D real
+  (`rotateY`, curva de easing), y al terminar se resetea sin animar
+  (invisible, ya que las dos caras quedan mostrando lo mismo). Confirmado
+  con capturas a los 90ms y 280ms del giro: se ve la distorsión de
+  perspectiva de verdad, no un corte.
+
+La cabecera/pie pasan de estar DENTRO de cada hoja a ser una sola franja
+arriba y abajo del par (menos texto repetido, más lugar para la página).
+Si el par de hojas cae a caballo de dos actuaciones distintas, la
+cabecera lo dice ("Doc A → Doc B") y el índice resalta las dos — antes
+daba la impresión de que las dos hojas eran de la misma actuación.
+
 **Resuelto — rediseño del lector (panel lateral + controles flotantes).**
 Se combinaron dos referencias de diseño: el panel de índice ya existía
 (`#idxPanel`, con título/fecha/descripción por actuación) pero era un

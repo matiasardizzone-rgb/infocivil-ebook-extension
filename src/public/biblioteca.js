@@ -246,7 +246,7 @@ async function abrirExpediente(cid) {
     firmasPorDoc = docsDb.map(() => null);
 
     document.getElementById('expteNum').textContent = expActivo.numero || expActivo.cid;
-    buildTabs(); buildIndex();
+    buildIndex();
     mostrarLibro();
     await render(0);
     renderFlags();
@@ -258,33 +258,12 @@ async function abrirExpediente(cid) {
   }
 }
 
-// ─────────────────────────── CORDÓN (decorativo, una sola vez) ───────────────────────────
-(function dibujarCordon() {
-  const svgH = 400, nHoles = 9; let holesSvg = '';
-  for (let i = 0; i < nHoles; i++) {
-    const y = 24 + i * ((svgH - 48) / (nHoles - 1));
-    holesSvg += `<circle cx="8" cy="${y}" r="3.4" fill="#3a1015"/>`;
-    holesSvg += `<path d="M8 ${y - 14} Q2 ${y} 8 ${y + 14}" stroke="url(#cordGrad)" stroke-width="2.6" fill="none" stroke-linecap="round"/>`;
-  }
-  document.querySelector('.cord-col svg').insertAdjacentHTML('beforeend', holesSvg);
-})();
-
-// ─────────────────────────── TABS + ÍNDICE ───────────────────────────
-const tabRail = document.getElementById('tabRail');
+// ─────────────────────────── ÍNDICE ───────────────────────────
+// El riel angosto de pestañas (una por actuación, con el cordón rojo
+// decorativo al lado) se sacó: quedaba redundante con el panel de
+// índice, que ya hace lo mismo con más información (título completo,
+// fecha) y siempre visible.
 const idxList = document.getElementById('idxList');
-
-function buildTabs() {
-  tabRail.innerHTML = '';
-  docsDb.forEach((d, di) => {
-    const t = document.createElement('div');
-    t.className = 'tab ' + (d.esHistorica ? 'hist' : 'actual');
-    t.dataset.di = di;
-    t.innerHTML = `<span>${esc(d.titulo)}</span>`;
-    t.title = d.titulo;
-    t.addEventListener('click', () => irADoc(di));
-    tabRail.appendChild(t);
-  });
-}
 function buildIndex() {
   idxList.innerHTML = '';
   document.getElementById('idxCount').textContent = docsDb.length + ' actuaciones · ' + pages.length + ' fojas';
@@ -334,7 +313,10 @@ function actualizarBadgeFirma(di) {
 }
 
 // ─────────────────────────── RENDER DE PÁGINA (lazy) ───────────────────────────
-const sheet = document.getElementById('sheet');
+const spread3d = document.getElementById('spread3d');
+const caraA = document.getElementById('caraA');
+const caraB = document.getElementById('caraB');
+const stageEl = document.getElementById('stage');
 
 async function renderCanvas(idx) {
   const pg = pages[idx];
@@ -342,20 +324,21 @@ async function renderCanvas(idx) {
   const pdf = pdfProxies[pg.di];
   const page = await pdf.getPage(pg.p);
 
-  // Escala dinámica: aprovechamos el espacio real disponible del contenedor
-  // en vez de un zoom fijo, así se ve grande en pantallas grandes y entera
-  // en chicas. Solo tiene sentido cuando el wrap ya está en el DOM medible.
-  const wrap = document.getElementById('pdfWrap');
+  // Escala dinámica: aprovechamos el espacio real disponible de UNA hoja
+  // (la mitad del libro, no el libro entero) en vez de un zoom fijo, así
+  // se ve grande en pantallas grandes y entera en chicas. Solo tiene
+  // sentido cuando el stage ya está en el DOM medible.
   const base = page.getViewport({ scale: 1 });
   let scale;
   if (zoomManual) {
     scale = zoomManual;
   } else {
     scale = 1.4;
-    if (wrap && wrap.clientWidth > 40 && wrap.clientHeight > 40) {
-      const margen = 0.97;
-      scale = Math.min((wrap.clientWidth * margen) / base.width, (wrap.clientHeight * margen) / base.height);
-      scale = Math.max(0.5, Math.min(scale, 2.2));
+    if (stageEl && stageEl.clientWidth > 80 && stageEl.clientHeight > 40) {
+      const margen = 0.95;
+      const anchoHoja = stageEl.clientWidth / 2;
+      scale = Math.min((anchoHoja * margen) / base.width, (stageEl.clientHeight * margen) / base.height);
+      scale = Math.max(0.5, Math.min(scale, 2.6));
     }
   }
 
@@ -367,97 +350,148 @@ async function renderCanvas(idx) {
   return pg;
 }
 
-async function render(i) {
-  const pg = pages[i];
-  const doc = pg.doc;
-
-  sheet.innerHTML = `
-    <div class="slimhead">
-      <span class="sh-badge ${doc.esHistorica ? 'hist' : 'actual'}">${doc.esHistorica ? '📜 HIST.' : '📋 ACTUAL'}</span>
-      <span class="sh-titulo" title="${esc(doc.titulo)}">${esc(doc.titulo)}</span>
-      <span class="sh-firma checking" id="shFirma">⏳ Verificando firma...</span>
-      <span class="sh-foja">fs. ${i + 1}/${pages.length}</span>
-    </div>
-    <div class="pdf-canvas-wrap" id="pdfWrap">
-      <div class="page-skeleton"><div class="spin"></div>Renderizando página...</div>
-    </div>
-    <div class="slimfoot">
-      <span>${esc((doc.urlHiper || '').replace('https://', ''))}</span>
-      <span>Doc. ${pg.di + 1}/${docsDb.length} · pág ${pg.p}</span>
-    </div>
-  `;
-
-  document.getElementById('counter').textContent = `fs. ${i + 1} / ${pages.length}`;
-  document.getElementById('linkInput').value = doc.urlHiper || '';
-  document.getElementById('btnPrev').disabled = i <= 0;
-  document.getElementById('btnNext').disabled = i >= pages.length - 1;
-  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('current', +t.dataset.di === pg.di));
-  document.querySelectorAll('.index-item').forEach(t => t.classList.toggle('on', +t.dataset.di === pg.di));
-  document.getElementById('btnFlag')?.classList.toggle('on', flags.some(f => f.page === i));
-  actualizarBadgeFirma(pg.di);
-
-  // Dejamos que el navegador pinte el spinner antes de arrancar el trabajo
-  // pesado de renderizar el PDF (si no, en páginas escaneadas grandes el
-  // hilo principal se traba y ni siquiera se llega a ver "Renderizando...").
-  await new Promise(r => requestAnimationFrame(r));
-
-  await renderCanvas(i);
-  const wrap = document.getElementById('pdfWrap');
-  if (wrap) {
-    wrap.innerHTML = '';
-    wrap.appendChild(pages[i].canvas);
-    wrap.classList.toggle('manual-zoom', !!zoomManual);
-  }
-
-  // Precarga silenciosa de la página siguiente para que el próximo "pasar
-  // hoja" sea instantáneo — no bloquea el render de la actual.
-  if (i + 1 < pages.length) renderCanvas(i + 1);
+// Copia los píxeles ya renderizados a un canvas nuevo (barato: no vuelve a
+// dibujar el PDF) — hace falta porque el MISMO <canvas> no puede estar a
+// la vez en la hoja "de reposo" y en la hoja "en tránsito" mientras gira.
+function clonarCanvas(origen) {
+  const c = document.createElement('canvas');
+  c.width = origen.width; c.height = origen.height;
+  c.getContext('2d').drawImage(origen, 0, 0);
+  return c;
 }
 
-async function goTo(i, dir) {
-  if (animating || i < 0 || i >= pages.length) return;
+// Dibuja el par de páginas (i, i+1) dentro de una de las dos caras del
+// spread (caraA o caraB). Devuelve la página izquierda (la "focal", la que
+// manda en la cabecera/pie/índice/banderita).
+async function pintarSpreadEnCara(caraEl, i) {
+  const pgL = pages[i] || null;
+  const pgR = pages[i + 1] || null;
+  await Promise.all([pgL, pgR].filter(Boolean).map(pg => renderCanvas(pages.indexOf(pg))));
+
+  const wrapL = caraEl.querySelector('.wrap-l');
+  const wrapR = caraEl.querySelector('.wrap-r');
+  wrapL.innerHTML = ''; wrapR.innerHTML = '';
+  if (pgL) wrapL.appendChild(clonarCanvas(pgL.canvas));
+  if (pgR) wrapR.appendChild(clonarCanvas(pgR.canvas));
+  caraEl.querySelector('.leaf-r').classList.toggle('vacia', !pgR);
+
+  return pgL;
+}
+
+function actualizarCabeceraPieControles(i, pgL) {
+  cur = i;
+  const doc = pgL.doc;
+  const pgR = pages[i + 1] || null;
+  // El par de hojas puede caer a caballo de dos actuaciones distintas (la
+  // última foja de una a la izquierda, la primera de la siguiente a la
+  // derecha) — la cabecera lo dice, si no da la impresión de que las dos
+  // hojas son de la misma.
+  const cruzaActuacion = pgR && pgR.di !== pgL.di;
+  const tituloMostrado = cruzaActuacion ? `${doc.titulo} → ${pgR.doc.titulo}` : doc.titulo;
+  document.getElementById('shBadge').className = 'sh-badge ' + (doc.esHistorica ? 'hist' : 'actual');
+  document.getElementById('shBadge').textContent = doc.esHistorica ? '📜 HIST.' : '📋 ACTUAL';
+  document.getElementById('shTitulo').textContent = tituloMostrado;
+  document.getElementById('shTitulo').title = tituloMostrado;
+  document.getElementById('sfUrl').textContent = (doc.urlHiper || '').replace('https://', '');
+  document.getElementById('sfDoc').textContent = `Doc. ${pgL.di + 1}/${docsDb.length} · pág ${pgL.p}`;
+  document.getElementById('linkInput').value = doc.urlHiper || '';
+  actualizarBadgeFirma(pgL.di);
+
+  const hayDerecha = i + 1 < pages.length;
+  document.getElementById('counter').textContent = hayDerecha
+    ? `fs. ${i + 1}-${i + 2} / ${pages.length}`
+    : `fs. ${i + 1} / ${pages.length}`;
+  document.getElementById('btnPrev').disabled = i <= 0;
+  document.getElementById('btnNext').disabled = i + 2 >= pages.length;
+  document.querySelectorAll('.index-item').forEach(t => {
+    const di = +t.dataset.di;
+    t.classList.toggle('on', di === pgL.di || (cruzaActuacion && di === pgR.di));
+  });
+  document.getElementById('btnFlag')?.classList.toggle('on', flags.some(f => f.page === i));
+
+  // Precarga silenciosa del próximo par para que el siguiente "pasar
+  // hoja" sea instantáneo — no bloquea nada de lo de arriba.
+  if (i + 2 < pages.length) renderCanvas(i + 2);
+  if (i + 3 < pages.length) renderCanvas(i + 3);
+}
+
+// Primera carga, o saltos sin animación de vuelta de hoja (por ejemplo,
+// al abrir el expediente): siempre queda pintado en caraA, en reposo.
+async function render(i) {
+  const objetivo = i - (i % 2);
+  const pgL = await pintarSpreadEnCara(caraA, objetivo);
+  actualizarCabeceraPieControles(objetivo, pgL);
+}
+
+function ultimoIzquierdoValido() {
+  return pages.length % 2 === 0 ? pages.length - 2 : pages.length - 1;
+}
+
+async function goTo(iSolicitado, dir) {
+  if (animating) return;
+  const objetivo = Math.max(0, Math.min(iSolicitado - (iSolicitado % 2), ultimoIzquierdoValido()));
+  if (objetivo === cur) return;
   animating = true;
   try {
-    // Pre-renderizamos la página destino en memoria MIENTRAS se sigue viendo
-    // la actual — así la transición nunca muestra un hueco en blanco
-    // esperando (el tiempo de espera varía mucho según el PDF, así que no
-    // tiene sentido atarlo a una animación de duración fija).
-    await renderCanvas(i);
-  } catch (e) { console.error('[PJN Biblioteca] Error prerenderizando página', i, e); }
-  sheet.classList.add('fading');
-  await new Promise(r => setTimeout(r, 110));
-  cur = i;
-  await render(cur); // el canvas ya está cacheado de arriba -> esto es instantáneo
-  sheet.classList.remove('fading');
-  animating = false;
+    // La hoja de destino se dibuja DEL OTRO LADO (caraB) mientras el
+    // operador todavía ve caraA — nunca hay un hueco en blanco esperando.
+    const pgL = await pintarSpreadEnCara(caraB, objetivo);
+    const avanza = objetivo > cur;
+
+    await new Promise(r => requestAnimationFrame(r)); // que el navegador pinte caraB antes de arrancar el giro
+    spread3d.classList.add(avanza ? 'girando-adelante' : 'girando-atras');
+    await new Promise(resolve => {
+      const fin = (e) => { if (e.target !== spread3d) return; spread3d.removeEventListener('transitionend', fin); resolve(); };
+      spread3d.addEventListener('transitionend', fin);
+      setTimeout(resolve, 900); // red de seguridad si transitionend no llega a disparar
+    });
+
+    // caraB ya quedó a la vista (girada). Se copia lo mismo a caraA —
+    // barato, son canvases ya renderizados — y se resetea el giro AL
+    // INSTANTE, sin animación: como las dos caras ya muestran lo mismo,
+    // el reseteo no se nota. Así caraA vuelve a ser "la de reposo" para
+    // la próxima vez, sea cual sea la dirección.
+    await pintarSpreadEnCara(caraA, objetivo);
+    spread3d.style.transition = 'none';
+    spread3d.classList.remove('girando-adelante', 'girando-atras');
+    void spread3d.offsetWidth; // forzar reflow antes de reactivar la transición
+    spread3d.style.transition = '';
+
+    actualizarCabeceraPieControles(objetivo, pgL);
+  } catch (e) {
+    console.error('[PJN Biblioteca] Error pasando de hoja:', e);
+  } finally {
+    animating = false;
+  }
 }
+
 function irADoc(di) {
   const firstIdx = pages.findIndex(pg => pg.di === di);
   if (firstIdx >= 0) goTo(firstIdx, firstIdx > cur ? 'next' : 'prev');
 }
 
-document.getElementById('btnPrev').addEventListener('click', () => goTo(cur - 1, 'prev'));
-document.getElementById('btnNext').addEventListener('click', () => goTo(cur + 1, 'next'));
-document.getElementById('navL').addEventListener('click', () => goTo(cur - 1, 'prev'));
-document.getElementById('navR').addEventListener('click', () => goTo(cur + 1, 'next'));
+document.getElementById('btnPrev').addEventListener('click', () => goTo(cur - 2, 'prev'));
+document.getElementById('btnNext').addEventListener('click', () => goTo(cur + 2, 'next'));
+document.getElementById('navL').addEventListener('click', () => goTo(cur - 2, 'prev'));
+document.getElementById('navR').addEventListener('click', () => goTo(cur + 2, 'next'));
 document.addEventListener('keydown', e => {
   if (!expActivo || sceneEl.style.display === 'none') return;
-  if (e.key === 'ArrowRight') goTo(cur + 1, 'next');
-  else if (e.key === 'ArrowLeft') goTo(cur - 1, 'prev');
+  if (e.key === 'ArrowRight') goTo(cur + 2, 'next');
+  else if (e.key === 'ArrowLeft') goTo(cur - 2, 'prev');
   else if (e.key === 'Home') goTo(0, 'prev');
   else if (e.key === 'End') goTo(pages.length - 1, 'next');
   else if (e.key === 'Escape') cerrarIndice();
 });
 
 let dragStartX = null;
-sheet.addEventListener('pointerdown', e => { dragStartX = e.clientX; sheet.classList.add('dragging'); });
-sheet.addEventListener('pointerup', e => {
-  sheet.classList.remove('dragging');
+stageEl.addEventListener('pointerdown', e => { dragStartX = e.clientX; stageEl.classList.add('dragging'); });
+stageEl.addEventListener('pointerup', e => {
+  stageEl.classList.remove('dragging');
   if (dragStartX === null) return;
   const dx = e.clientX - dragStartX; dragStartX = null;
-  if (dx < -60) goTo(cur + 1, 'next'); else if (dx > 60) goTo(cur - 1, 'prev');
+  if (dx < -60) goTo(cur + 2, 'next'); else if (dx > 60) goTo(cur - 2, 'prev');
 });
-sheet.addEventListener('pointerleave', () => { sheet.classList.remove('dragging'); dragStartX = null; });
+stageEl.addEventListener('pointerleave', () => { stageEl.classList.remove('dragging'); dragStartX = null; });
 
 // ─────────────────────────── ÍNDICE DESLIZABLE ───────────────────────────
 const idxPanel = document.getElementById('idxPanel');
