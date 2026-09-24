@@ -363,21 +363,6 @@ const caraA = document.getElementById('caraA');
 const caraB = document.getElementById('caraB');
 const stageEl = document.getElementById('stage');
 
-// Reserva abajo del libro solo lo que la píldora de controles realmente
-// ocupa (una fila la mayoría de las veces, dos en pantallas angostas) —
-// el valor fijo anterior (112px, pensado para el peor caso) le sacaba
-// ~50px de alto a la hoja en pantallas anchas de sobra para una sola
-// fila. Se recalcula solo si la barra cambia de tamaño (p. ej., al
-// redimensionar la ventana y pasar de una fila a dos).
-(function ajustarEspacioToolbar() {
-  const bookEl = document.querySelector('.book');
-  const toolbarEl = document.querySelector('.toolbar');
-  if (!bookEl || !toolbarEl) return;
-  const fijar = () => { bookEl.style.paddingBottom = (toolbarEl.offsetHeight + 14 + 12) + 'px'; };
-  new ResizeObserver(fijar).observe(toolbarEl);
-  fijar();
-})();
-
 async function renderCanvas(idx) {
   const pg = pages[idx];
   if (pg.canvas) return pg; // ya renderizado, lo reusamos

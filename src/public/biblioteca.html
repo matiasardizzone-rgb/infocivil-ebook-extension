@@ -129,9 +129,9 @@
     background:linear-gradient(160deg,var(--cover-navy) 0%,var(--cover-navy-deep) 100%);
     border-radius:3px 10px 10px 3px;
     box-shadow:0 30px 60px rgba(0,0,0,.55),0 8px 20px rgba(0,0,0,.4),inset 0 0 0 1px rgba(255,255,255,.06);
-    padding:8px 8px 70px 8px;overflow:hidden; /* abajo, lugar reservado para la píldora flotante de controles — valor de arranque (una fila); ajustarEspacioToolbar() en JS lo corrige al tamaño real apenas mide el DOM, incluida la vuelta a dos filas en pantallas angostas. Subir el z-index del pie NO alcanza para esto: .spread-3d tiene su propio z-index (contexto de apilamiento propio), así que nada de lo que está adentro puede superar visualmente a .toolbar por más z-index que tenga */
+    padding:8px 8px 8px 8px;overflow:hidden; /* pareja: los controles ya no flotan abajo del libro, viven en la barra superior — no hace falta reservarles lugar */
   }
-  .book-header{display:flex;align-items:center;gap:12px;color:#dfe9f7;padding:2px 6px 8px 14px;flex-shrink:0}
+  .book-header{display:flex;align-items:center;gap:12px;color:#dfe9f7;padding:2px 6px 8px 14px;flex-shrink:0;flex-wrap:wrap;row-gap:6px}
   .escudo{font-size:20px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))}
   .book-header .titles{line-height:1.25}
   .book-header .t1{font-size:12.5px;font-weight:700;letter-spacing:.2px}
@@ -240,23 +240,18 @@
   .nav-zone:hover::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.05),transparent)}
   .nav-zone.r:hover::after{background:linear-gradient(270deg,rgba(0,0,0,.05),transparent)}
 
-  /* Barra de controles flotante, en píldora, colgando del borde inferior
-     del libro (no una fila más dentro de la tapa) — separada del
-     contenido, como el "Página X de Y" de arriba. */
-  .toolbar{
-    position:absolute;left:50%;bottom:14px;transform:translateX(-50%);
-    display:flex;align-items:center;gap:7px;
-    background:rgba(255,255,255,.97);padding:9px 14px;border-radius:30px;
-    box-shadow:0 10px 34px rgba(0,0,0,.35);z-index:10;
-    max-width:calc(100% - 28px);flex-wrap:wrap;justify-content:center;
-  }
-  .toolbar button{background:#eef2f7;border:1px solid #dbe3ee;color:var(--cover-navy);width:30px;height:30px;border-radius:20px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:background .15s}
-  .toolbar button:hover{background:var(--accent-soft);border-color:var(--accent)}
-  .toolbar button:disabled{opacity:.35;cursor:default}
+  /* Los controles del lector viven en la barra superior, no en una
+     píldora flotante colgando del borde inferior del libro — esa
+     reservaba espacio de sobra abajo, achicando la hoja sin necesidad
+     (pedido del operador: "insertala en la barra superior"). */
+  .header-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .header-tools button{background:#eef2f7;border:1px solid #dbe3ee;color:var(--cover-navy);width:26px;height:26px;border-radius:20px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;transition:background .15s}
+  .header-tools button:hover{background:var(--accent-soft);border-color:var(--accent)}
+  .header-tools button:disabled{opacity:.35;cursor:default}
 
-  .idx-btn{background:#eef2f7!important;border:1px solid #dbe3ee!important;color:var(--cover-navy)!important;width:auto!important;padding:0 13px!important;border-radius:20px!important;font-size:11.5px!important;font-family:'Inter',sans-serif;gap:6px;font-weight:600}
+  .idx-btn{background:#eef2f7!important;border:1px solid #dbe3ee!important;color:var(--cover-navy)!important;width:auto!important;height:26px;padding:0 12px!important;border-radius:20px!important;font-size:11px!important;font-family:'Inter',sans-serif;gap:6px;font-weight:600;display:inline-flex;align-items:center}
   .idx-btn:hover{background:var(--accent-soft)!important;border-color:var(--accent)!important}
-  select#zoomSel{border:1px solid #dbe3ee;color:var(--cover-navy);height:30px;border-radius:20px;outline:none;background:#eef2f7;padding:0 6px}
+  select#zoomSel{border:1px solid #dbe3ee;color:var(--cover-navy);height:26px;border-radius:20px;outline:none;background:#eef2f7;padding:0 6px;font-size:11px}
   .home-btn{margin-left:4px}
 
   /* "fs. X / Y" flotando arriba del libro, como una insignia aparte. */
@@ -323,7 +318,10 @@
   .flag::before{content:'';width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.85);flex-shrink:0}
   .flag-btn-wrap{position:relative}
   #btnFlag.on{background:rgba(255,190,80,.28)!important;border-color:rgba(255,190,80,.5)!important}
-  .flag-pop{position:absolute;bottom:44px;left:0;width:210px;background:#fffdf6;border:1px solid var(--paper-shadow);border-radius:8px;box-shadow:0 10px 26px rgba(0,0,0,.4);padding:12px;z-index:30;display:none}
+  /* Abre hacia ABAJO ahora (top, no bottom): el botón "Marcar" vive en la
+     barra superior desde que los controles se movieron ahí — antes,
+     colgando del borde inferior del libro, abría hacia arriba. */
+  .flag-pop{position:absolute;top:34px;left:0;width:210px;background:#fffdf6;border:1px solid var(--paper-shadow);border-radius:8px;box-shadow:0 10px 26px rgba(0,0,0,.4);padding:12px;z-index:30;display:none}
   .flag-pop.open{display:block}
   .flag-pop .fp-title{font-size:10.5px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px}
   .flag-pop input[type=text]{width:100%;border:1px solid var(--paper-shadow);border-radius:5px;padding:6px 8px;font-family:'Inter',sans-serif;font-size:11.5px;margin-bottom:9px;color:var(--ink)}
@@ -429,6 +427,36 @@
         <div class="t2">Cámara Nacional de Apelaciones en lo Civil</div>
       </div>
       <div class="page-badge" id="counter">fs. — / —</div>
+
+      <div class="header-tools">
+        <button id="btnPrev">‹</button>
+        <button id="btnNext">›</button>
+        <select id="zoomSel" class="idx-btn" style="cursor:pointer">
+          <option value="1" selected>100%</option>
+          <option value="1.25">125%</option>
+          <option value="1.5">150%</option>
+          <option value="2">200%</option>
+          <option value="2.5">250%</option>
+          <option value="3">300%</option>
+        </select>
+        <button class="idx-btn" id="btnFit" title="Ajustar la página al espacio disponible">⟷ Ajustar</button>
+        <button class="idx-btn" id="btnDescargarDoc" title="Descargar este documento">⬇️ Descargar</button>
+        <div class="flag-btn-wrap">
+          <button class="idx-btn" id="btnFlag" title="Marcar esta foja">🚩 Marcar</button>
+          <div class="flag-pop" id="flagPop">
+            <div class="fp-title">Marcador libre — esta foja</div>
+            <input type="text" id="flagLabel" placeholder="Ej: revisar, ver perito, clave..." maxlength="24">
+            <div class="fp-colors" id="fpColors"></div>
+            <div class="fp-actions">
+              <button class="danger" id="flagRemove" style="display:none">Quitar</button>
+              <button class="primary" id="flagSave">Guardar</button>
+            </div>
+          </div>
+        </div>
+        <button class="idx-btn" id="btnIndex">📑 Índice</button>
+        <button class="idx-btn home-btn" id="btnHome">📚 Biblioteca</button>
+      </div>
+
       <div class="expte" id="expteSwitch" title="Volver a la biblioteca">
         <div class="n" id="expteNum">—</div>
         <div class="l">Expediente digital · cambiar ↩</div>
@@ -469,35 +497,6 @@
       <div class="nav-zone l" id="navL" title="Página anterior"></div>
       <div class="nav-zone r" id="navR" title="Página siguiente"></div>
       <div class="flag-rail" id="flagRail"></div>
-    </div>
-
-    <div class="toolbar">
-      <button id="btnPrev">‹</button>
-      <button id="btnNext">›</button>
-      <select id="zoomSel" class="idx-btn" style="cursor:pointer">
-        <option value="1" selected>100%</option>
-        <option value="1.25">125%</option>
-        <option value="1.5">150%</option>
-        <option value="2">200%</option>
-        <option value="2.5">250%</option>
-        <option value="3">300%</option>
-      </select>
-      <button class="idx-btn" id="btnFit" title="Ajustar la página al espacio disponible">⟷ Ajustar</button>
-      <button class="idx-btn" id="btnDescargarDoc" title="Descargar este documento">⬇️ Descargar</button>
-      <div class="flag-btn-wrap">
-        <button class="idx-btn" id="btnFlag" title="Marcar esta foja">🚩 Marcar</button>
-        <div class="flag-pop" id="flagPop">
-          <div class="fp-title">Marcador libre — esta foja</div>
-          <input type="text" id="flagLabel" placeholder="Ej: revisar, ver perito, clave..." maxlength="24">
-          <div class="fp-colors" id="fpColors"></div>
-          <div class="fp-actions">
-            <button class="danger" id="flagRemove" style="display:none">Quitar</button>
-            <button class="primary" id="flagSave">Guardar</button>
-          </div>
-        </div>
-      </div>
-      <button class="idx-btn" id="btnIndex">📑 Índice</button>
-      <button class="idx-btn home-btn" id="btnHome">📚 Biblioteca</button>
     </div>
 
   </div>
