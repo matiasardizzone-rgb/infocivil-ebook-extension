@@ -181,11 +181,14 @@ async function actualizarExpediente(exp, card) {
 document.getElementById('btnHome').addEventListener('click', () => { cargarBiblioteca(); mostrarBiblioteca(); });
 document.getElementById('expteSwitch').addEventListener('click', () => { cargarBiblioteca(); mostrarBiblioteca(); });
 document.getElementById('btnNuevaConsulta').addEventListener('click', async () => {
-  // Si ya hay una pestaña de consulta abierta, se vuelve a esa (recargada,
-  // lista para el próximo expediente) en vez de apilar una pestaña nueva
-  // cada vez.
-  const url = chrome.runtime.getURL('src/public/inicio.html');
-  const existentes = await chrome.tabs.query({ url });
+  // Vuelve al panel de opciones de ESTE expediente (Leer como libro / PDF
+  // unificado / ZIP / vinculados) — no a una búsqueda en blanco. Lee de
+  // Mis expedientes, sin pasar por el SCW de nuevo (ver cargarDesdeGuardado
+  // en inicio.js).
+  const url = chrome.runtime.getURL('src/public/inicio.html') + '?resultados=' + encodeURIComponent(expActivo.cid);
+  // Si ya hay una pestaña de consulta abierta (cualquier estado de
+  // inicio.html), se reusa esa en vez de apilar una pestaña nueva cada vez.
+  const existentes = await chrome.tabs.query({ url: chrome.runtime.getURL('src/public/inicio.html') + '*' });
   if (existentes.length) {
     const t = existentes[0];
     await chrome.tabs.update(t.id, { url, active: true });
