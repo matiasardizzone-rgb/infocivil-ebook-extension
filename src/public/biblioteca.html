@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Infocivil Ebook — Mis Expedientes</title>
+<link rel="stylesheet" href="estilos.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -45,49 +46,46 @@
   }
 
   /* ══════════════════════════ BIBLIOTECA ══════════════════════════ */
-  .library{
-    position:absolute;inset:0;z-index:50;
-    display:flex;align-items:center;justify-content:center;
-    opacity:1;pointer-events:auto;transition:opacity .25s;
-  }
+  /* Página completa, con la misma barra superior que inicio.html (clases
+     de estilos.css: .barra/.barra-contenido/etc) — antes era un panel
+     modal flotante con su propia estética de tapa de libro; ahora
+     combina con el resto de la extensión, como pidió el operador. */
+  .library{position:absolute;inset:0;z-index:50;background:var(--fondo);
+    display:flex;flex-direction:column;opacity:1;pointer-events:auto;transition:opacity .2s;overflow-y:auto}
   .library.hidden{opacity:0;pointer-events:none}
-  .lib-panel{
-    width:min(94vw,980px);height:min(90vh,700px);
-    background:linear-gradient(170deg,#f8f4e9,#efe8d5);
-    border-radius:10px;box-shadow:0 40px 80px rgba(0,0,0,.5);
-    display:flex;flex-direction:column;overflow:hidden;
-    border:1px solid rgba(0,0,0,.08);
-  }
-  .lib-head{
-    background:linear-gradient(160deg,var(--cover-navy),var(--cover-navy-deep));
-    color:#fff;padding:20px 28px;display:flex;align-items:center;gap:14px;flex-shrink:0;
-  }
-  .lib-head .esc{font-size:26px}
-  .lib-head h1{font-family:'Source Serif 4',serif;font-size:18px;font-weight:700}
-  .lib-head p{font-size:11px;color:#a8c4e8;margin-top:1px}
-  .lib-head .lib-count{margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#cfe0f5;background:rgba(255,255,255,.1);padding:6px 12px;border-radius:14px}
 
-  .lib-body{flex:1;overflow-y:auto;padding:22px 28px 30px}
-  .lib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+  .lib-body{max-width:1100px;width:100%;margin:0 auto;padding:28px 24px 40px;flex:1}
+  .lib-body h1{font-family:'Inter',sans-serif;font-size:19px;font-weight:700;color:var(--texto);margin-bottom:4px}
+  .lib-sub{font-size:12px;color:var(--texto-tenue);margin-bottom:20px;display:flex;align-items:center;gap:14px}
+  .lib-sub .lib-count{font-family:'IBM Plex Mono',monospace}
+  .lib-sub .btn-limpiar{margin-left:auto}
+
+  .lib-grid{display:flex;flex-direction:column;gap:12px}
 
   .lib-card{
-    background:#fffdf7;border:1px solid var(--paper-shadow);border-radius:3px 8px 8px 3px;
-    box-shadow:0 4px 10px rgba(0,0,0,.1);position:relative;padding:16px 16px 14px;
-    display:flex;flex-direction:column;gap:8px;cursor:pointer;transition:transform .12s, box-shadow .12s;
-    border-left:5px solid var(--accent);
+    background:#fff;border:1px solid var(--borde-suave);border-radius:var(--radio);
+    box-shadow:var(--sombra);padding:16px 18px;
+    display:flex;align-items:center;gap:16px;cursor:pointer;transition:box-shadow .12s;
   }
-  .lib-card:hover{transform:translateY(-2px);box-shadow:0 10px 20px rgba(0,0,0,.18)}
-  .lib-card.new{border-left-color:var(--warn)}
-  .lib-card .lc-num{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:var(--accent)}
-  .lib-card.new .lc-num{color:var(--warn)}
-  .lib-card .lc-title{font-family:'Source Serif 4',serif;font-size:14px;font-weight:600;line-height:1.35;color:var(--ink)}
-  .lib-card .lc-meta{font-size:10.5px;color:var(--ink-soft);display:flex;gap:10px;flex-wrap:wrap}
-  .lib-badge{
-    align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:700;
-    padding:3px 9px;border-radius:10px;letter-spacing:.3px;
+  .lib-card:hover{box-shadow:0 4px 16px rgba(26,58,107,.18)}
+  .lib-card-info{flex:1;min-width:0}
+  .lib-card .lc-num{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:var(--texto-tenue)}
+  .lib-card .lc-title{font-family:'Inter',sans-serif;font-size:14.5px;font-weight:700;line-height:1.35;color:var(--texto);margin:2px 0 4px}
+  .lib-card .lc-meta{font-size:11.5px;color:var(--azul);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .lib-card .lc-meta .lc-badge{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;color:var(--error);
   }
-  .lib-badge.ok{background:#e6f4ea;color:var(--ok)}
-  .lib-badge.new{background:#fdeae1;color:var(--warn)}
+  .lc-actions{display:flex;align-items:center;gap:14px;flex-shrink:0}
+  .lc-actions button[data-open]{
+    background:#fff;border:1px solid var(--borde);color:var(--azul);font-weight:600;
+    padding:7px 16px;border-radius:6px;cursor:pointer;font-family:'Inter',sans-serif;font-size:12.5px;
+  }
+  .lc-actions button[data-open]:hover{background:var(--azul-palido)}
+  .lc-actions button.lc-texto{background:none;border:none;color:var(--azul);cursor:pointer;font-family:'Inter',sans-serif;font-size:12.5px}
+  .lc-actions button.lc-texto:hover{text-decoration:underline}
+  .lc-actions button.lc-icon{background:none;border:none;color:var(--texto-tenue);cursor:pointer;font-size:14px;padding:2px}
+  .lc-actions button.lc-icon:hover{color:var(--azul)}
+  .lib-badge{display:none} /* el aviso de novedades ahora es .lc-badge, en línea con la fecha */
   .lib-badge.checking{background:#eef0f3;color:var(--ink-soft)}
   .lc-actions{display:flex;gap:7px;margin-top:4px}
   .lc-actions button{
@@ -131,7 +129,7 @@
     background:linear-gradient(160deg,var(--cover-navy) 0%,var(--cover-navy-deep) 100%);
     border-radius:3px 10px 10px 3px;
     box-shadow:0 30px 60px rgba(0,0,0,.55),0 8px 20px rgba(0,0,0,.4),inset 0 0 0 1px rgba(255,255,255,.06);
-    padding:8px 8px 0 8px;overflow:hidden; /* al mínimo: maximizar la hoja es la prioridad */
+    padding:8px 8px 112px 8px;overflow:hidden; /* abajo, lugar reservado para la píldora flotante de controles — puede envolver en dos filas (pantallas angostas), no tapa el pie de cada hoja. Subir el z-index del pie NO alcanza para esto: .spread-3d tiene su propio z-index (contexto de apilamiento propio), así que nada de lo que está adentro puede superar visualmente a .toolbar por más z-index que tenga */
   }
   .book-header{display:flex;align-items:center;gap:12px;color:#dfe9f7;padding:2px 6px 12px 14px;flex-shrink:0}
   .escudo{font-size:20px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))}
@@ -165,6 +163,42 @@
   .cara.sale-der{opacity:0;transform:translateX(22px)}
   .cara.entra-izq{transform:translateX(-22px)}
   .cara.entra-der{transform:translateX(22px)}
+
+  /* Cada hoja con su propio encabezado y pie (como el artefacto web): no
+     uno solo compartido para el par — cada página puede ser de una
+     actuación distinta, cada una con su propio enlace público. */
+  .leaf-col{flex:1;min-width:0;display:flex;flex-direction:column}
+  .leaf-head{
+    position:relative;z-index:11; /* por encima de .nav-zone (3) y de la píldora flotante (10) */
+    display:flex;align-items:center;gap:6px;padding:5px 10px;flex-shrink:0;
+    background:var(--paper);border-bottom:1px solid rgba(43,36,25,.15);
+    font-family:'Inter',sans-serif;font-size:10px;color:var(--ink-soft);
+  }
+  .leaf-head .lh-ref{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .leaf-head .lh-firma{flex-shrink:0;font-size:10px;cursor:default}
+  .leaf-head .lh-firma.ok{filter:none}
+  .leaf-head .lh-firma.bad,.leaf-head .lh-firma.none,.leaf-head .lh-firma.checking{opacity:.6}
+  .leaf-head .lh-flag{
+    flex-shrink:0;border:none;background:none;cursor:pointer;font-size:12px;
+    opacity:.35;filter:grayscale(1);padding:1px 2px;transition:opacity .15s,filter .15s;
+  }
+  .leaf-head .lh-flag:hover{opacity:.7}
+  .leaf-head .lh-flag.on{opacity:1;filter:none}
+  .leaf-foot{
+    position:relative;z-index:11; /* por encima de .nav-zone (3) y de la píldora flotante (10) */
+    display:flex;align-items:center;gap:5px;padding:4px 10px;flex-shrink:0;
+    background:var(--paper-2);overflow:hidden;white-space:nowrap;
+    font-family:'IBM Plex Mono',monospace;font-size:8.5px;color:var(--ink-soft);
+  }
+  .leaf-foot .lf-dot{width:5px;height:5px;border-radius:50%;background:var(--ok);flex-shrink:0}
+  .leaf-foot .lf-url{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .leaf-foot button{
+    flex-shrink:0;border:1px solid var(--paper-shadow);background:#fff;color:var(--ink-soft);
+    width:16px;height:16px;border-radius:3px;cursor:pointer;font-size:9px;line-height:1;
+    display:flex;align-items:center;justify-content:center;transition:all .15s;
+  }
+  .leaf-foot button:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+  .leaf-foot button.copied{border-color:var(--ok);color:var(--ok);background:#eef8f1}
   .leaf{
     flex:1;min-width:0;position:relative;overflow:hidden;display:flex;
     background:radial-gradient(1200px 500px at 20% 0%, #f3ecd9 0%, var(--paper) 55%, var(--paper-2) 100%);
@@ -197,7 +231,10 @@
   .newpage-glow{position:absolute;top:8px;left:8px;font-family:'IBM Plex Mono',monospace;font-size:8.5px;font-weight:700;color:#fff;background:var(--warn);padding:3px 8px;border-radius:3px;box-shadow:0 2px 6px rgba(0,0,0,.3)}
   .page-foot{display:flex;justify-content:space-between;align-items:center;padding:6px 26px 12px;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--ink-soft);flex-shrink:0}
 
-  .nav-zone{position:absolute;top:0;bottom:0;width:22%;z-index:3;cursor:pointer}
+  /* Ni top:0 ni bottom:0 — antes tapaba los botones del encabezado/pie de
+     cada hoja (copiar/abrir/marcar), que viven en esas franjas desde que
+     cada hoja tiene los suyos propios. Se achica para dejarlas afuera. */
+  .nav-zone{position:absolute;top:34px;bottom:28px;width:22%;z-index:3;cursor:pointer}
   .nav-zone.l{left:0}
   .nav-zone.r{right:0}
   .nav-zone:hover::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.05),transparent)}
@@ -249,30 +286,32 @@
   .index-head h2{font-family:'Source Serif 4',serif;font-size:14px;color:var(--cover-navy)}
   .index-head .cnt{font-size:10.5px;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace}
   .index-close{background:none;border:none;font-size:16px;cursor:pointer;color:var(--ink-soft)}
-  .index-list{overflow-y:auto;flex:1;padding:6px 0}
-  .index-item{display:flex;gap:9px;align-items:flex-start;padding:9px 16px;cursor:pointer;border-left:3px solid transparent;font-size:11.5px;color:var(--ink-soft);line-height:1.4}
+
+  /* Buscador del índice — filtra la lista por título/tipo/fecha a
+     medida que se escribe (pedido: que el índice se vea como el del
+     artefacto web, que lo tiene). */
+  .index-search{padding:0 18px 12px;flex-shrink:0}
+  .index-search input{
+    width:100%;border:1px solid var(--paper-shadow);background:#fff;border-radius:5px;
+    padding:7px 10px;font-family:'Inter',sans-serif;font-size:12px;color:var(--ink);outline:none;
+  }
+  .index-search input:focus{border-color:var(--accent)}
+
+  .index-list{overflow-y:auto;flex:1;padding:6px 0;border-top:1px solid var(--paper-shadow)}
+  .index-item{display:flex;gap:10px;align-items:flex-start;padding:9px 16px;cursor:pointer;border-left:3px solid transparent;font-size:11.5px;color:var(--ink-soft);line-height:1.4}
   .index-item:hover{background:rgba(30,91,168,.06)}
-  .index-item.on{background:rgba(30,91,168,.09);border-left-color:var(--accent);color:var(--ink);font-weight:600}
+  .index-item.on{background:rgba(30,91,168,.09);border-left-color:var(--accent)}
   .index-item.hist.on{background:#fff3d1;border-left-color:var(--gold)}
-  .index-num{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#fff;min-width:26px;text-align:center;padding:2px 4px;border-radius:3px;background:var(--accent);flex-shrink:0}
-  .index-item.hist .index-num{background:var(--gold)}
+  .index-item.filtrado{display:none}
+  .index-num{font-family:'IBM Plex Mono',monospace;font-size:10.5px;font-weight:600;color:var(--ink-soft);min-width:24px;flex-shrink:0}
+  .index-body{min-width:0}
+  .index-tipo{font-weight:700;color:var(--ink);text-transform:uppercase;font-size:11px}
+  .index-desc{color:var(--ink-soft)}
+  .index-fecha{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--ink-soft);opacity:.75;margin-top:2px}
   /* Ya no tapa el libro (el panel ahora empuja en vez de superponerse):
      el elemento queda, sin efecto visual, solo para no tocar el JS que
      ya lo referencia. */
   .index-overlay{display:none}
-
-  /* El enlace público ahora vive DENTRO del pie de página (nunca tapa la
-     hoja) en vez de flotar encima — el cuadrito de antes se superponía a
-     la foja cuando el documento tenía una imagen a página completa. */
-  .sf-url-wrap{display:flex;align-items:center;gap:5px;overflow:hidden;min-width:0}
-  .sf-dot{width:5px;height:5px;border-radius:50%;background:var(--ok);flex-shrink:0}
-  .sf-url-wrap button{
-    flex-shrink:0;border:1px solid var(--paper-shadow);background:#fff;color:var(--ink-soft);
-    width:18px;height:18px;border-radius:4px;cursor:pointer;font-size:10px;line-height:1;
-    display:flex;align-items:center;justify-content:center;transition:all .15s;
-  }
-  .sf-url-wrap button:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
-  .sf-url-wrap button.copied{border-color:var(--ok);color:var(--ok);background:#eef8f1}
 
 
   /* ══════════════════════════ BANDERITAS LIBRES ══════════════════════════ */
@@ -338,56 +377,37 @@
 
   /* Membrete compacto para el visor real (PDFs de verdad, no la maqueta) */
   /* Ahora afuera de la hoja (una sola cabecera/pie para el par de páginas,
-     no una por hoja) — necesitan su propio fondo claro para leerse contra
-     la tapa oscura del libro. */
-  .slimhead{
-    display:flex;align-items:center;gap:8px;padding:6px 16px;flex-shrink:0;
-    margin:0 4px;border-radius:5px 5px 0 0;
-    background:var(--paper);border-bottom:1px solid rgba(43,36,25,.15);font-family:'Inter',sans-serif;
-  }
-  .slimhead .sh-badge{
-    font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;padding:2px 7px;border-radius:3px;flex-shrink:0;
-  }
-  .slimhead .sh-badge.actual{background:var(--accent-soft);color:var(--accent)}
-  .slimhead .sh-badge.hist{background:#fff3d1;color:var(--gold)}
-  .slimhead .sh-titulo{font-size:11.5px;color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
-  .slimhead .sh-foja{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--ink-soft);flex-shrink:0}
-  .slimfoot{
-    display:flex;justify-content:space-between;align-items:center;padding:4px 16px;flex-shrink:0;
-    margin:0 4px 4px;border-radius:0 0 5px 5px;background:var(--paper-2);
-    font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--ink-soft);
-    overflow:hidden;white-space:nowrap;
-  }
-  .slimfoot span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:8px}
-
-  /* Badge de verificación de firma electrónica */
-  .sh-firma{
-    font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;padding:2px 7px;border-radius:3px;
-    flex-shrink:0;cursor:help;white-space:nowrap;
-  }
-  .sh-firma.checking{background:#eef0f3;color:var(--ink-soft)}
-  .sh-firma.ok{background:#e6f4ea;color:var(--ok)}
-  .sh-firma.bad{background:#fdeae1;color:var(--warn)}
-  .sh-firma.none{background:#eef0f3;color:var(--ink-soft)}
+     no una por hoja) — cada una tiene ahora su propio .leaf-head/.leaf-foot,
+     con fondo claro propio para leerse contra la tapa oscura del libro. */
   .tab-firma{position:absolute;left:-4px;top:2px;font-size:9px}
 </style>
 </head>
 <body>
 
 <div class="library" id="library" style="display:none">
-  <div class="lib-panel">
-    <div class="lib-head">
-      <div class="esc">📚</div>
+  <header class="barra">
+    <div class="barra-contenido">
+      <svg class="escudo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <path d="M12 3v18M7 7h10M5 7l-2.5 6a3.5 3.5 0 0 0 5 0L5 7zM19 7l-2.5 6a3.5 3.5 0 0 0 5 0L19 7z"/>
+        <path d="M8 21h8"/>
+      </svg>
       <div>
-        <h1>Mis expedientes descargados</h1>
-        <p>Guardados localmente en este navegador · funcionan sin conexión al SCW</p>
+        <div class="barra-titulo">Infocivil Ebook</div>
+        <div class="barra-sub">Poder Judicial de la Nación · Cámara Civil</div>
       </div>
-      <div class="lib-count" id="libCount">— guardados</div>
+      <div class="barra-acciones">
+        <a class="barra-link" href="inicio.html">Nueva consulta</a>
+      </div>
+    </div>
+  </header>
+  <div class="lib-body">
+    <h1>Mis expedientes</h1>
+    <div class="lib-sub">
+      <span>Guardados en este navegador. No se almacenan en el servidor.</span>
+      <span class="lib-count" id="libCount">— guardados</span>
       <button class="btn-limpiar" id="btnLimpiar">🧹 Limpiar biblioteca</button>
     </div>
-    <div class="lib-body">
-      <div class="lib-grid" id="libGrid"></div>
-    </div>
+    <div class="lib-grid" id="libGrid"></div>
   </div>
 </div>
 
@@ -397,6 +417,7 @@
       <div><h2>Tabla de actuaciones</h2><div class="cnt" id="idxCount"></div></div>
       <button class="index-close" id="idxClose" title="Angostar el panel">✕</button>
     </div>
+    <div class="index-search"><input id="idxSearch" type="text" placeholder="Buscar en el índice..."></div>
     <div class="index-list" id="idxList"></div>
   </div>
 
@@ -412,27 +433,37 @@
         <div class="n" id="expteNum">—</div>
         <div class="l">Expediente digital · cambiar ↩</div>
       </div>
-      <button id="btnNuevaConsulta" class="idx-btn" title="Consultar otro expediente" style="margin-left:10px">🔎 Consultar</button>
-    </div>
-
-    <div class="slimhead" id="slimhead">
-      <span class="sh-badge actual" id="shBadge">📋 ACTUAL</span>
-      <span class="sh-titulo" id="shTitulo"></span>
-      <span class="sh-firma checking" id="shFirma">⏳ Verificando firma...</span>
+      <button id="btnNuevaConsulta" class="idx-btn" title="Volver al panel de opciones de este expediente" style="margin-left:10px">← Volver</button>
     </div>
 
     <div class="stage" id="stage">
       <div class="stage-shadow"></div>
       <div class="spread-3d" id="spread3d">
         <div class="cara a" id="caraA">
-          <div class="leaf leaf-l"><div class="pdf-canvas-wrap wrap-l"><div class="page-skeleton"><div class="spin"></div></div></div></div>
+          <div class="leaf-col" data-lado="l">
+            <div class="leaf-head"><span class="lh-ref"></span><span class="lh-firma checking" title="">⏳</span><button class="lh-flag" title="Marcar esta foja">🏳</button></div>
+            <div class="leaf leaf-l"><div class="pdf-canvas-wrap wrap-l"><div class="page-skeleton"><div class="spin"></div></div></div></div>
+            <div class="leaf-foot"><span class="lf-dot"></span><span class="lf-url"></span><button class="lf-copy" title="Copiar el enlace público">⧉</button><button class="lf-open" title="Abrir en el SCW">↗</button></div>
+          </div>
           <div class="spine"></div>
-          <div class="leaf leaf-r"><div class="pdf-canvas-wrap wrap-r"><div class="page-skeleton"><div class="spin"></div></div></div></div>
+          <div class="leaf-col" data-lado="r">
+            <div class="leaf-head"><span class="lh-ref"></span><span class="lh-firma checking" title="">⏳</span><button class="lh-flag" title="Marcar esta foja">🏳</button></div>
+            <div class="leaf leaf-r"><div class="pdf-canvas-wrap wrap-r"><div class="page-skeleton"><div class="spin"></div></div></div></div>
+            <div class="leaf-foot"><span class="lf-dot"></span><span class="lf-url"></span><button class="lf-copy" title="Copiar el enlace público">⧉</button><button class="lf-open" title="Abrir en el SCW">↗</button></div>
+          </div>
         </div>
         <div class="cara b" id="caraB">
-          <div class="leaf leaf-l"><div class="pdf-canvas-wrap wrap-l"></div></div>
+          <div class="leaf-col" data-lado="l">
+            <div class="leaf-head"><span class="lh-ref"></span><span class="lh-firma checking" title="">⏳</span><button class="lh-flag" title="Marcar esta foja">🏳</button></div>
+            <div class="leaf leaf-l"><div class="pdf-canvas-wrap wrap-l"></div></div>
+            <div class="leaf-foot"><span class="lf-dot"></span><span class="lf-url"></span><button class="lf-copy" title="Copiar el enlace público">⧉</button><button class="lf-open" title="Abrir en el SCW">↗</button></div>
+          </div>
           <div class="spine"></div>
-          <div class="leaf leaf-r"><div class="pdf-canvas-wrap wrap-r"></div></div>
+          <div class="leaf-col" data-lado="r">
+            <div class="leaf-head"><span class="lh-ref"></span><span class="lh-firma checking" title="">⏳</span><button class="lh-flag" title="Marcar esta foja">🏳</button></div>
+            <div class="leaf leaf-r"><div class="pdf-canvas-wrap wrap-r"></div></div>
+            <div class="leaf-foot"><span class="lf-dot"></span><span class="lf-url"></span><button class="lf-copy" title="Copiar el enlace público">⧉</button><button class="lf-open" title="Abrir en el SCW">↗</button></div>
+          </div>
         </div>
       </div>
       <div class="nav-zone l" id="navL" title="Página anterior"></div>
@@ -440,23 +471,13 @@
       <div class="flag-rail" id="flagRail"></div>
     </div>
 
-    <div class="slimfoot" id="slimfoot">
-      <span class="sf-url-wrap">
-        <span class="sf-dot"></span>
-        <span id="sfUrl"></span>
-        <button id="copyBtn" title="Copiar el enlace público">⧉</button>
-        <button id="openBtn" title="Abrir en el SCW">↗</button>
-      </span>
-      <span id="sfDoc"></span>
-    </div>
-
     <div class="toolbar">
       <button id="btnPrev">‹</button>
       <button id="btnNext">›</button>
       <select id="zoomSel" class="idx-btn" style="cursor:pointer">
-        <option value="1">100%</option>
+        <option value="1" selected>100%</option>
         <option value="1.25">125%</option>
-        <option value="1.5" selected>150%</option>
+        <option value="1.5">150%</option>
         <option value="2">200%</option>
         <option value="2.5">250%</option>
         <option value="3">300%</option>

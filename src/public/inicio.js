@@ -5,6 +5,7 @@
 // abierta mientras esta pantalla esté abierta (las descargas la usan).
 
 import { JURISDICCIONES, valorPorSigla } from '../lib/jurisdicciones.js';
+import * as db from '../lib/db.js';
 
 const $ = id => document.getElementById(id);
 let puerto = null;
@@ -130,6 +131,17 @@ async function mostrarExpediente() {
   const r = await new Promise(res => chrome.runtime.sendMessage({ action: 'bibliotecaListar' }, res));
   const guardado = r && r.ok && (r.expedientes || []).some(e => e.cid === exp.cid);
   $('btnGuardarTexto').textContent = guardado ? 'Actualizar en Mis expedientes' : 'Agregar a Mis expedientes';
+
+  // PDF unificado / ZIP arman el archivo volviendo a pedirle cada
+  // actuación al SCW — necesitan la pestaña de una consulta en vivo. Sin
+  // ella (se llegó acá con "← Volver", no buscando de nuevo), avisan en
+  // vez de fallar en silencio; "Leer como libro" no tiene este problema,
+  // ya está todo guardado.
+  const sinPestana = !exp.tabId;
+  document.querySelectorAll('[data-formato]').forEach(b => {
+    b.disabled = sinPestana;
+    b.title = sinPestana ? 'Hace falta volver a consultar el expediente para generar esto (no se guarda el enlace de descarga original).' : '';
+  });
 
   renderVinculados();
 }
@@ -261,13 +273,20 @@ async function ejecutar(fn) {
 }
 
 $('btnEbook').addEventListener('click', () => ejecutar(async () => {
-  const r = await guardar();
+  // Sin pestaña del SCW (se llegó acá con "← Volver", no con una consulta
+  // en vivo): no hace falta guardar de nuevo, ya está en Mis expedientes
+  // — abrir el libro directo.
+  let mensaje = '✓ Libro abierto en una pestaña nueva.';
+  if (exp.tabId) {
+    const r = await guardar();
+    mensaje = '✓ Libro abierto en una pestaña nueva (' + r.descargados + ' actuaciones' +
+      (r.errores ? ', ' + r.errores + ' con error' : '') + ').';
+  }
   // Pestaña nueva, no location.href: así el libro queda abierto aparte y
   // esta pantalla puede volver a la búsqueda para el próximo expediente,
   // sin perder el que se acaba de abrir.
   chrome.tabs.create({ url: chrome.runtime.getURL('src/public/biblioteca.html?abrir=' + encodeURIComponent(exp.cid)) });
-  volverABuscar('✓ Libro abierto en una pestaña nueva (' + r.descargados + ' actuaciones' +
-    (r.errores ? ', ' + r.errores + ' con error' : '') + ').');
+  volverABuscar(mensaje);
 }));
 
 function volverABuscar(mensaje) {
@@ -290,12 +309,14 @@ $('btnGuardar').addEventListener('click', () => ejecutar(async () => {
 }));
 
 document.querySelector('[data-formato="zip"]').addEventListener('click', () => ejecutar(async () => {
+  if (!exp.tabId) { estado('Para armar el ZIP hace falta volver a consultar el expediente.', 'error'); return; }
   const r = await accionEnPestana('crearYDescargarZip');
   if (!r.ok) throw new Error(r.error || 'No se pudo armar el ZIP.');
   estado('✓ ZIP listo: se abrió el diálogo para guardarlo.', 'ok');
 }));
 
 document.querySelector('[data-formato="unificado-indice"]').addEventListener('click', () => ejecutar(async () => {
+  if (!exp.tabId) { estado('Para generar el PDF unificado hace falta volver a consultar el expediente.', 'error'); return; }
   if (!confirmarCompletitud()) return;
   const actuaciones = exp.actuaciones.length ? exp.actuaciones : exp.archivos;
   const seguimiento = seguirProgreso('unificadoProgreso', p =>
@@ -313,3 +334,31 @@ document.querySelector('[data-formato="unificado-indice"]').addEventListener('cl
   estado('✓ PDF unificado listo (' + r.descargados + '/' + r.total + ' actuaciones' +
     (r.errores ? ', ' + r.errores + ' con página de error' : '') + '). Se abrió el diálogo para guardarlo.', 'ok');
 }));
+
+// ─────────────────────────── "← Volver" desde el lector ───────────────────────────
+// inicio.html?resultados=<cid>: en vez de una búsqueda nueva contra el
+// SCW, arma la pantalla de resultados leyendo directo de lo que ya está
+// guardado en Mis Expedientes (sin pasar por el SCW de nuevo). Vinculados
+// no se persisten (solo viajan en la respuesta de una búsqueda en vivo),
+// así que esa sección queda vacía en este camino — limitación conocida,
+// no hay vuelta si el expediente no se resguscó de nuevo.
+(async function cargarDesdeGuardado() {
+  const cid = new URLSearchParams(location.search).get('resultados');
+  if (!cid) return;
+  const expediente = await db.obtenerExpediente(cid);
+  if (!expediente) { estadoBuscar('No se encontró "' + cid + '" en Mis expedientes.', 'error'); return; }
+  const documentos = await db.obtenerDocumentos(cid);
+  exp = {
+    cid: expediente.cid,
+    tabId: null, // no hay pestaña del SCW abierta en este camino: no vino de una búsqueda en vivo
+    nombre: expediente.numero,
+    caratula: expediente.caratula,
+    folderName: expediente.folderName,
+    tituloExpediente: expediente.caratula,
+    archivos: documentos.map(d => ({ titulo: d.titulo, esHistorica: d.esHistorica })),
+    actuaciones: documentos.map(d => ({ titulo: d.titulo, fecha: d.fecha, tipo: d.tipo, esHistorica: d.esHistorica })),
+    aviso: '', paginacionIncompleta: false, historicasFaltantes: false,
+    vinculados: [],
+  };
+  await mostrarExpediente();
+})();

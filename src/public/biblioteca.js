@@ -20,7 +20,7 @@ let pages = [];          // aplanado: { di, p, doc, canvas:null }
 let flags = [];
 let firmasPorDoc = [];   // { estado, firmas, detalle } | null (todavía no verificado) — indexado por di
 let cur = 0, animating = false, selColor = FLAG_COLORS[0].id;
-let zoomManual = null; // null = ajuste automático; número (1, 1.5, 2...) = zoom fijo elegido por el operador
+let zoomManual = 1; // por defecto 100% (tamaño real del PDF), no el ajuste automático — pedido explícito: no arrancar en un zoom que se sienta "grande" de entrada
 
 // ─────────────────────────── BIBLIOTECA (grilla) ───────────────────────────
 const libraryEl = document.getElementById('library');
@@ -42,22 +42,23 @@ async function cargarBiblioteca() {
   expedientes.forEach(exp => {
     const card = document.createElement('div');
     card.className = 'lib-card' + (exp.estado === 'nuevo' ? ' new' : '');
+    const avisoIni = textoEstado(exp.estado === 'nuevo' ? exp.nuevasDetectadas : 0, exp.eliminadasDetectadas || 0);
     card.innerHTML = `
-      <div class="lc-num">${esc(exp.numero || exp.cid)}</div>
-      <div class="lc-title">${esc(exp.caratula || '(sin carátula detectada)')}</div>
-      <div class="lc-meta">
-        <span>📄 ${exp.cantidadActuaciones || 0} actuaciones</span>
-        <span>💾 ${fechaCorta(exp.fechaDescarga)}</span>
+      <div class="lib-card-info">
+        <div class="lc-num">${esc(exp.numero || exp.cid)}</div>
+        <div class="lc-title">${esc(exp.caratula || '(sin carátula detectada)')}</div>
+        <div class="lc-meta">
+          <span>${exp.cantidadActuaciones || 0} actuaciones</span>
+          <span>· visto por última vez el ${fechaCorta(exp.fechaVerificacion || exp.fechaDescarga)}</span>
+          <span class="lc-badge" data-badge${avisoIni ? '' : ' hidden'}>${esc(avisoIni)}</span>
+        </div>
+        <div class="lib-bar" style="display:none"><div class="lib-bar-fill" data-bar></div></div>
       </div>
-      <span class="lib-badge ${exp.estado === 'nuevo' || exp.eliminadasDetectadas > 0 ? 'new' : 'ok'}" data-badge>
-        ${textoEstado(exp.estado === 'nuevo' ? exp.nuevasDetectadas : 0, exp.eliminadasDetectadas || 0)}
-      </span>
-      <div class="lib-bar" style="display:none"><div class="lib-bar-fill" data-bar></div></div>
       <div class="lc-actions">
+        <button data-verify class="lc-icon" title="${exp.estado === 'nuevo' ? 'Actualizar biblioteca' : 'Chequear si hay novedades en el SCW'}">${exp.estado === 'nuevo' ? '⬇️' : '🔄'}</button>
+        <button data-zip class="lc-icon" title="Exportar como ZIP">📦</button>
         <button data-open>Abrir</button>
-        <button data-verify class="verify">${exp.estado === 'nuevo' ? 'Actualizar' : 'Verificar'}</button>
-        <button data-zip title="Exportar como ZIP" style="flex:0 0 auto;padding:6px 9px">⬇️</button>
-        <button data-del title="Eliminar de la biblioteca" style="flex:0 0 auto;padding:6px 9px">🗑</button>
+        <button data-del class="lc-texto" title="Eliminar de la biblioteca">Quitar</button>
       </div>
     `;
     card.querySelector('[data-open]').addEventListener('click', e => { e.stopPropagation(); abrirExpediente(exp.cid); });
@@ -90,7 +91,7 @@ function textoEstado(nuevas, eliminadas) {
   const partes = [];
   if (nuevas > 0) partes.push('🔴 ' + nuevas + (nuevas === 1 ? ' actuación nueva' : ' actuaciones nuevas'));
   if (eliminadas > 0) partes.push('⚠️ ' + eliminadas + (eliminadas === 1 ? ' ya no figura' : ' ya no figuran') + ' en el SCW');
-  return partes.length ? partes.join(' · ') : '✓ Al día';
+  return partes.join(' · '); // vacío = al día, no se muestra nada (el aviso de novedades es la excepción, no el estado normal)
 }
 
 function fechaCorta(iso) {
@@ -99,12 +100,18 @@ function fechaCorta(iso) {
 }
 function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
+// Muestra/oculta el aviso de novedades de una tarjeta (texto vacío = al
+// día, no se muestra nada — la excepción es la novedad, no el estado normal).
+function fijarAviso(badge, texto) {
+  badge.textContent = texto;
+  badge.hidden = !texto;
+}
+
 // Verificar: abre (o reusa) la pestaña del SCW, escanea liviano, compara.
 async function verificarExpediente(exp, card) {
   const badge = card.querySelector('[data-badge]');
   const btn = card.querySelector('[data-verify]');
-  badge.className = 'lib-badge checking';
-  badge.textContent = '⏳ Verificando en el SCW...';
+  fijarAviso(badge, '⏳ Verificando en el SCW...');
   btn.disabled = true;
   try {
     const r = await chrome.runtime.sendMessage({ action: 'bibliotecaVerificarEnVivo', cid: exp.cid });
@@ -113,13 +120,12 @@ async function verificarExpediente(exp, card) {
     exp.nuevasDetectadas = r.nuevasDetectadas || 0;
     card.classList.toggle('new', r.cambio);
     exp.eliminadasDetectadas = r.eliminadasDetectadas || 0;
-    badge.className = 'lib-badge ' + (r.cambio ? 'new' : 'ok');
-    badge.textContent = textoEstado(r.nuevasDetectadas || 0, r.eliminadasDetectadas || 0);
+    fijarAviso(badge, textoEstado(r.nuevasDetectadas || 0, r.eliminadasDetectadas || 0));
     if (r.criterio === 'cantidad') badge.title = 'Comparado por cantidad de actuaciones (los links públicos no coincidieron).';
-    btn.textContent = r.cambio ? 'Actualizar' : 'Verificar';
+    btn.textContent = r.cambio ? '⬇️' : '🔄';
+    btn.title = r.cambio ? 'Actualizar biblioteca' : 'Chequear si hay novedades en el SCW';
   } catch (err) {
-    badge.className = 'lib-badge new';
-    badge.textContent = '❌ ' + err.message;
+    fijarAviso(badge, '❌ ' + err.message);
   }
   btn.disabled = false;
 }
@@ -131,8 +137,7 @@ async function actualizarExpediente(exp, card) {
   const btn = card.querySelector('[data-verify]');
   const barWrap = card.querySelector('.lib-bar');
   const barFill = card.querySelector('[data-bar]');
-  badge.className = 'lib-badge checking';
-  badge.textContent = '⏳ Actualizando biblioteca...';
+  fijarAviso(badge, '⏳ Actualizando biblioteca...');
   btn.disabled = true;
   barWrap.style.display = 'block';
 
@@ -158,15 +163,16 @@ async function actualizarExpediente(exp, card) {
     exp.estado = 'ok'; exp.nuevasDetectadas = 0;
     exp.cantidadActuaciones = actualizado ? actualizado.cantidadActuaciones : exp.cantidadActuaciones;
     exp.fechaDescarga = actualizado ? actualizado.fechaDescarga : exp.fechaDescarga;
+    exp.fechaVerificacion = actualizado ? actualizado.fechaVerificacion : exp.fechaVerificacion;
     card.classList.remove('new');
-    badge.className = 'lib-badge ok';
-    badge.textContent = '✓ Al día';
-    btn.textContent = 'Verificar';
-    card.querySelector('.lc-meta').innerHTML =
-      `<span>📄 ${exp.cantidadActuaciones} actuaciones</span><span>💾 ${fechaCorta(exp.fechaDescarga)}</span>`;
+    fijarAviso(badge, '');
+    btn.textContent = '🔄';
+    btn.title = 'Chequear si hay novedades en el SCW';
+    const meta = card.querySelector('.lc-meta');
+    meta.querySelector('span:first-child').textContent = exp.cantidadActuaciones + ' actuaciones';
+    meta.querySelectorAll('span')[1].textContent = '· visto por última vez el ' + fechaCorta(exp.fechaVerificacion || exp.fechaDescarga);
   } catch (err) {
-    badge.className = 'lib-badge new';
-    badge.textContent = '❌ ' + err.message;
+    fijarAviso(badge, '❌ ' + err.message);
   }
   btn.disabled = false;
   barWrap.style.display = 'none';
@@ -175,11 +181,14 @@ async function actualizarExpediente(exp, card) {
 document.getElementById('btnHome').addEventListener('click', () => { cargarBiblioteca(); mostrarBiblioteca(); });
 document.getElementById('expteSwitch').addEventListener('click', () => { cargarBiblioteca(); mostrarBiblioteca(); });
 document.getElementById('btnNuevaConsulta').addEventListener('click', async () => {
-  // Si ya hay una pestaña de consulta abierta, se vuelve a esa (recargada,
-  // lista para el próximo expediente) en vez de apilar una pestaña nueva
-  // cada vez.
-  const url = chrome.runtime.getURL('src/public/inicio.html');
-  const existentes = await chrome.tabs.query({ url });
+  // Vuelve al panel de opciones de ESTE expediente (Leer como libro / PDF
+  // unificado / ZIP / vinculados) — no a una búsqueda en blanco. Lee de
+  // Mis expedientes, sin pasar por el SCW de nuevo (ver cargarDesdeGuardado
+  // en inicio.js).
+  const url = chrome.runtime.getURL('src/public/inicio.html') + '?resultados=' + encodeURIComponent(expActivo.cid);
+  // Si ya hay una pestaña de consulta abierta (cualquier estado de
+  // inicio.html), se reusa esa en vez de apilar una pestaña nueva cada vez.
+  const existentes = await chrome.tabs.query({ url: chrome.runtime.getURL('src/public/inicio.html') + '*' });
   if (existentes.length) {
     const t = existentes[0];
     await chrome.tabs.update(t.id, { url, active: true });
@@ -271,11 +280,26 @@ function buildIndex() {
     const it = document.createElement('div');
     it.className = 'index-item' + (d.esHistorica ? ' hist' : '');
     it.dataset.di = di;
-    it.innerHTML = `<span class="index-num">${String(di + 1).padStart(2, '0')}</span><span>${esc(d.titulo)}</span>`;
-    it.addEventListener('click', () => { irADoc(di); cerrarIndice(); });
+    it.dataset.buscar = (String(di + 1) + ' ' + (d.tipo || '') + ' ' + (d.titulo || '') + ' ' + (d.fecha || '')).toLowerCase();
+    it.innerHTML = `<span class="index-num">${String(di + 1).padStart(3, '0')}</span>` +
+      `<div class="index-body">` +
+      (d.tipo ? `<div class="index-tipo">${esc(d.tipo)}</div>` : '') +
+      `<div class="index-desc">${esc(d.titulo)}</div>` +
+      (d.fecha ? `<div class="index-fecha">${esc(d.fecha)}</div>` : '') +
+      `</div>`;
+    it.addEventListener('click', () => irADoc(di)); // el panel es fijo ahora: no se cierra solo al navegar
     idxList.appendChild(it);
   });
 }
+
+// Buscador del índice: filtra por número, tipo, título o fecha a medida
+// que se escribe — no hace falta salir del índice ni pasar de página.
+document.getElementById('idxSearch').addEventListener('input', function () {
+  const q = this.value.trim().toLowerCase();
+  document.querySelectorAll('.index-item').forEach(it => {
+    it.classList.toggle('filtrado', !!q && !it.dataset.buscar.includes(q));
+  });
+});
 
 // ─────────────────────────── FIRMA ELECTRÓNICA ───────────────────────────
 async function verificarFirmasEnSegundoPlano() {
@@ -286,8 +310,11 @@ async function verificarFirmasEnSegundoPlano() {
     } catch (err) {
       firmasPorDoc[di] = { estado: 'error', firmas: [], detalle: err.message };
     }
-    // Si la página actual pertenece a este documento, refrescamos el badge ya mismo.
-    if (pages[cur] && pages[cur].di === di) actualizarBadgeFirma(di);
+    // actualizarBadgeFirma ya recorre las hojas visibles (izq. y der.) y
+    // no hace nada si ninguna es de este documento — no hace falta
+    // filtrar acá primero (antes solo miraba la izquierda, y la firma de
+    // la derecha podía quedar sin actualizar).
+    actualizarBadgeFirma(di);
   }
 }
 
@@ -303,13 +330,25 @@ function etiquetaFirma(resultado) {
   return { cls: 'bad', texto: '❓ No se pudo verificar', title: resultado.detalle };
 }
 
+function iconoFirma(et) {
+  const m = et.texto.match(/^(\S+)/);
+  return m ? m[1] : '—';
+}
+
+// Actualiza el iconito de firma de CUALQUIER hoja visible (izq. o der.,
+// en cualquiera de las dos caras) que pertenezca al documento 'di' —
+// puede haber hasta dos a la vez si el par cruza dos actuaciones y una
+// de ellas es justo esta.
 function actualizarBadgeFirma(di) {
-  const el = document.getElementById('shFirma');
-  if (!el || !pages[cur] || pages[cur].di !== di) return;
   const et = etiquetaFirma(firmasPorDoc[di]);
-  el.className = 'sh-firma ' + et.cls;
-  el.textContent = et.texto;
-  el.title = et.title;
+  document.querySelectorAll('.leaf-col').forEach(col => {
+    const idx = col.dataset.pagina === '' ? null : +col.dataset.pagina;
+    if (idx === null || !pages[idx] || pages[idx].di !== di) return;
+    const el = col.querySelector('.lh-firma');
+    el.className = 'lh-firma ' + et.cls;
+    el.textContent = iconoFirma(et);
+    el.title = et.texto + (et.title ? ' — ' + et.title : '');
+  });
 }
 
 // ─────────────────────────── RENDER DE PÁGINA (lazy) ───────────────────────────
@@ -360,42 +399,53 @@ function clonarCanvas(origen) {
   return c;
 }
 
+// Pinta UNA hoja (columna izquierda o derecha) dentro de una cara: su
+// canvas, referencia (actuación · título · página), firma, bandera y
+// enlace público propios — cada hoja es autosuficiente, no depende de la
+// otra (pueden ser de actuaciones distintas).
+function pintarHoja(colEl, pg, indice) {
+  const wrap = colEl.querySelector('.pdf-canvas-wrap');
+  wrap.innerHTML = '';
+  colEl.dataset.pagina = indice === null ? '' : String(indice);
+  colEl.dataset.url = '';
+  colEl.classList.toggle('vacia', !pg);
+  colEl.querySelector('.leaf-head').style.visibility = pg ? '' : 'hidden';
+  colEl.querySelector('.leaf-foot').style.visibility = pg ? '' : 'hidden';
+  if (!pg) return;
+
+  wrap.appendChild(clonarCanvas(pg.canvas));
+  const doc = pg.doc;
+  const ref = colEl.querySelector('.lh-ref');
+  ref.textContent = `Act. ${pg.di + 1} · ${doc.titulo} · pág ${pg.p}`;
+  ref.title = ref.textContent;
+  colEl.querySelector('.lh-flag').classList.toggle('on', flags.some(f => f.page === indice));
+
+  const url = doc.urlHiper || '';
+  colEl.dataset.url = url;
+  colEl.querySelector('.lf-url').textContent = url.replace('https://', '');
+
+  const et = etiquetaFirma(firmasPorDoc[pg.di]);
+  const fEl = colEl.querySelector('.lh-firma');
+  fEl.className = 'lh-firma ' + et.cls;
+  fEl.textContent = iconoFirma(et);
+  fEl.title = et.texto + (et.title ? ' — ' + et.title : '');
+}
+
 // Dibuja el par de páginas (i, i+1) dentro de una de las dos caras del
 // spread (caraA o caraB). Devuelve la página izquierda (la "focal", la que
-// manda en la cabecera/pie/índice/banderita).
+// manda en el índice y en counter/prev/next).
 async function pintarSpreadEnCara(caraEl, i) {
   const pgL = pages[i] || null;
   const pgR = pages[i + 1] || null;
   await Promise.all([pgL, pgR].filter(Boolean).map(pg => renderCanvas(pages.indexOf(pg))));
-
-  const wrapL = caraEl.querySelector('.wrap-l');
-  const wrapR = caraEl.querySelector('.wrap-r');
-  wrapL.innerHTML = ''; wrapR.innerHTML = '';
-  if (pgL) wrapL.appendChild(clonarCanvas(pgL.canvas));
-  if (pgR) wrapR.appendChild(clonarCanvas(pgR.canvas));
-  caraEl.querySelector('.leaf-r').classList.toggle('vacia', !pgR);
-
+  pintarHoja(caraEl.querySelector('[data-lado="l"]'), pgL, pgL ? i : null);
+  pintarHoja(caraEl.querySelector('[data-lado="r"]'), pgR, pgR ? i + 1 : null);
   return pgL;
 }
 
 function actualizarCabeceraPieControles(i, pgL) {
   cur = i;
-  const doc = pgL.doc;
   const pgR = pages[i + 1] || null;
-  // El par de hojas puede caer a caballo de dos actuaciones distintas (la
-  // última foja de una a la izquierda, la primera de la siguiente a la
-  // derecha) — la cabecera lo dice, si no da la impresión de que las dos
-  // hojas son de la misma.
-  const cruzaActuacion = pgR && pgR.di !== pgL.di;
-  const tituloMostrado = cruzaActuacion ? `${doc.titulo} → ${pgR.doc.titulo}` : doc.titulo;
-  document.getElementById('shBadge').className = 'sh-badge ' + (doc.esHistorica ? 'hist' : 'actual');
-  document.getElementById('shBadge').textContent = doc.esHistorica ? '📜 HIST.' : '📋 ACTUAL';
-  document.getElementById('shTitulo').textContent = tituloMostrado;
-  document.getElementById('shTitulo').title = tituloMostrado;
-  document.getElementById('sfUrl').textContent = (doc.urlHiper || '').replace('https://', '');
-  document.getElementById('sfDoc').textContent = `Doc. ${pgL.di + 1}/${docsDb.length} · pág ${pgL.p}`;
-  urlActual = doc.urlHiper || '';
-  actualizarBadgeFirma(pgL.di);
 
   const hayDerecha = i + 1 < pages.length;
   document.getElementById('counter').textContent = hayDerecha
@@ -405,7 +455,7 @@ function actualizarCabeceraPieControles(i, pgL) {
   document.getElementById('btnNext').disabled = i + 2 >= pages.length;
   document.querySelectorAll('.index-item').forEach(t => {
     const di = +t.dataset.di;
-    t.classList.toggle('on', di === pgL.di || (cruzaActuacion && di === pgR.di));
+    t.classList.toggle('on', di === pgL.di || (pgR && di === pgR.di));
   });
   document.getElementById('btnFlag')?.classList.toggle('on', flags.some(f => f.page === i));
 
@@ -513,17 +563,27 @@ function cerrarIndice() { idxPanel.classList.add('closed'); }
 document.getElementById('btnIndex').addEventListener('click', abrirIndice);
 document.getElementById('idxClose').addEventListener('click', cerrarIndice);
 
-// ─────────────────────────── ENLACE PÚBLICO (integrado al pie, no flota) ───────────────────────────
-let urlActual = '';
-document.getElementById('copyBtn').addEventListener('click', function () {
-  if (!urlActual) return;
-  navigator.clipboard?.writeText(urlActual).catch(() => {});
-  const original = this.textContent;
-  this.textContent = '✓'; this.classList.add('copied');
-  setTimeout(() => { this.textContent = original; this.classList.remove('copied'); }, 1600);
-});
-document.getElementById('openBtn').addEventListener('click', () => {
-  if (urlActual) window.open(urlActual, '_blank');
+// ─────────────────────────── ENLACE PÚBLICO (uno por hoja, en su pie) ───────────────────────────
+// Delegado en el stage, no un listener por botón: el par de hojas se
+// vuelve a pintar entero en cada vuelta de hoja (pintarHoja hace
+// wrap.innerHTML = ''), así que cualquier listener puesto directo sobre
+// un botón anterior quedaría huérfano.
+stageEl.addEventListener('click', e => {
+  const copy = e.target.closest('.lf-copy');
+  const open = e.target.closest('.lf-open');
+  const btn = copy || open;
+  if (!btn) return;
+  const col = btn.closest('.leaf-col');
+  const url = col && col.dataset.url;
+  if (!url) return;
+  if (copy) {
+    navigator.clipboard?.writeText(url).catch(() => {});
+    const original = btn.textContent;
+    btn.textContent = '✓'; btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = original; btn.classList.remove('copied'); }, 1600);
+  } else {
+    window.open(url, '_blank');
+  }
 });
 
 // ─────────────────────────── BANDERITAS LIBRES (persistentes de verdad) ───────────────────────────
@@ -595,33 +655,68 @@ function renderFlags() {
 }
 const flagPop = document.getElementById('flagPop');
 const btnFlag = document.getElementById('btnFlag');
-btnFlag.addEventListener('click', e => {
-  e.stopPropagation();
-  const existing = flags.find(f => f.page === cur);
+// Qué página apunta el popup: la izquierda por defecto (botón del
+// toolbar), o la que sea si se abrió desde el iconito de una hoja
+// puntual (izquierda o derecha, cualquiera de las dos caras).
+let paginaObjetivoFlag = cur;
+
+function abrirPopupFlag(pagina) {
+  paginaObjetivoFlag = pagina;
+  const existing = flags.find(f => f.page === pagina);
   document.getElementById('flagLabel').value = existing ? existing.label : '';
   selColor = existing ? existing.color : FLAG_COLORS[0].id;
   fpColors.querySelectorAll('.fp-color').forEach(x => x.classList.toggle('sel', x.dataset.id === selColor));
   document.getElementById('flagRemove').style.display = existing ? 'block' : 'none';
-  flagPop.classList.toggle('open');
+  flagPop.classList.add('open');
+}
+btnFlag.addEventListener('click', e => {
+  e.stopPropagation();
+  if (flagPop.classList.contains('open') && paginaObjetivoFlag === cur) { flagPop.classList.remove('open'); return; }
+  abrirPopupFlag(cur);
+});
+// Delegado: el iconito 🏳 de cada hoja se recrea en cada vuelta de página
+// (mismo motivo que el enlace público — pintarHoja rehace el contenido).
+stageEl.addEventListener('click', e => {
+  const btn = e.target.closest('.lh-flag');
+  if (!btn) return;
+  e.stopPropagation();
+  const col = btn.closest('.leaf-col');
+  const pagina = col && col.dataset.pagina;
+  if (pagina === '' || pagina == null) return; // hoja vacía (spread con una sola página)
+  abrirPopupFlag(+pagina);
 });
 document.addEventListener('click', e => {
-  if (!flagPop.contains(e.target) && e.target !== btnFlag) flagPop.classList.remove('open');
+  if (!flagPop.contains(e.target) && e.target !== btnFlag && !e.target.closest('.lh-flag')) flagPop.classList.remove('open');
 });
 document.getElementById('flagSave').addEventListener('click', async () => {
   const label = document.getElementById('flagLabel').value.trim();
-  const guardado = await db.guardarMarcador({ cid: expActivo.cid, ...lugarDeFoja(cur), label, color: selColor });
-  flags = flags.filter(f => f.page !== cur);
-  flags.push({ ...guardado, page: cur });
+  const pagina = paginaObjetivoFlag;
+  const guardado = await db.guardarMarcador({ cid: expActivo.cid, ...lugarDeFoja(pagina), label, color: selColor });
+  flags = flags.filter(f => f.page !== pagina);
+  flags.push({ ...guardado, page: pagina });
   flags.sort((a, b) => a.page - b.page);
   renderFlags();
+  actualizarIconosFlagVisibles();
   flagPop.classList.remove('open');
 });
 document.getElementById('flagRemove').addEventListener('click', async () => {
-  await db.eliminarMarcador(expActivo.cid, lugarDeFoja(cur));
-  flags = flags.filter(f => f.page !== cur);
+  const pagina = paginaObjetivoFlag;
+  await db.eliminarMarcador(expActivo.cid, lugarDeFoja(pagina));
+  flags = flags.filter(f => f.page !== pagina);
   renderFlags();
+  actualizarIconosFlagVisibles();
   flagPop.classList.remove('open');
 });
+// Tras guardar/quitar una banderita, refleja el cambio en los iconitos
+// 🏳 que ya están pintados en pantalla (sin tener que repintar la hoja
+// entera).
+function actualizarIconosFlagVisibles() {
+  document.querySelectorAll('.leaf-col').forEach(col => {
+    if (col.dataset.pagina === '' || col.dataset.pagina == null) return;
+    const pagina = +col.dataset.pagina;
+    col.querySelector('.lh-flag')?.classList.toggle('on', flags.some(f => f.page === pagina));
+  });
+}
 
 // ─────────────────────────── EXPORTAR ZIP (desde la biblioteca) ───────────────────────────
 async function exportarZip(exp) {
