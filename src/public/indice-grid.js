@@ -34,8 +34,14 @@ conStorageListo(20, () => chrome.storage.local.get('indiceGrid', (res) => {
     const fila = document.createElement('div');
     fila.className = 'fila';
 
-    const info = document.createElement('div');
+    // Todo el bloque de texto (fecha + tipo + detalle) es en sí mismo el
+    // hipervínculo — no solo el botón "Abrir": así, al seleccionar y
+    // copiar el texto de la actuación (para armar un informe, p. ej.),
+    // el enlace viaja pegado al texto en Word o cualquier editor de texto
+    // enriquecido. Si no hay url, queda como texto plano (sin <a>).
+    const info = document.createElement(e.url ? 'a' : 'div');
     info.className = 'info';
+    if (e.url) { info.href = e.url; info.target = '_blank'; info.rel = 'noopener'; }
 
     const titulo = document.createElement('div');
     titulo.className = 'titulo';
