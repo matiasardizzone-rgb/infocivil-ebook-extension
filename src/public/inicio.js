@@ -7,6 +7,8 @@
 import { JURISDICCIONES, valorPorSigla } from '../lib/jurisdicciones.js';
 import { ordenarPorFechaAsc } from '../lib/unificador.js';
 import { crearZip } from '../lib/zip.js';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('vendor/pdf.worker.min.js');
 import * as db from '../lib/db.js';
 
 const $ = id => document.getElementById(id);
@@ -430,15 +432,99 @@ document.getElementById('btnIndiceHiperWord').addEventListener('click', () => ej
   estado('✓ Word descargado — al abrirlo puede avisar que el formato no coincide con la extensión (es normal, así conserva los enlaces): elegí "Sí".', 'ok');
 }));
 
-// EPUB: por dentro es un ZIP con una estructura fija (mimetype sin
-// comprimir primero, META-INF/container.xml, el paquete OPF, la tabla de
-// contenidos NCX y el XHTML con el índice en sí) — se arma con el mismo
-// crearZip() casero que ya usa "Descargar ZIP", sin ninguna librería nueva.
-function generarEpubIndice(tituloExpediente, ordenadas) {
-  const f = fragmentoIndice(tituloExpediente, ordenadas);
-  const uid = 'urn:uuid:infocivil-' + Date.now();
-  const enc = new TextEncoder();
+// ─── Exportar EPUB — módulo autónomo, al mismo nivel que "PDF unificado
+// con índice": no es solo el índice, es el expediente completo (cada
+// actuación con sus fojas, como en el libro), con un índice interno
+// hipervinculado (el TOC del EPUB) y el enlace público visible al
+// principio de cada actuación. Necesita re-descargar cada actuación
+// (igual que PDF unificado/ZIP), por eso se deshabilita sin pestaña del
+// SCW (ver el sweep de [data-formato] en mostrarExpediente()).
+//
+// Cada actuación se renderiza a imágenes (pdf.js, igual que el lector) en
+// vez de embeber el PDF tal cual: un EPUB es HTML/XHTML por dentro, no
+// puede mostrar páginas de un PDF como contenido de lectura — y buena
+// parte de las actuaciones son escaneos sin texto, así que extraer texto
+// tampoco serviría para todas por igual.
+async function renderizarPdfComoImagenes(bytes) {
+  const pdf = await pdfjsLib.getDocument({ data: bytes, isEvalSupported: false, useSystemFonts: true }).promise;
+  const imagenes = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const base = page.getViewport({ scale: 1 });
+    const escala = Math.min(1.6, 1000 / base.width); // ancho ~1000px: legible, sin inflar el peso del epub
+    const vp = page.getViewport({ scale: escala });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(vp.width);
+    canvas.height = Math.ceil(vp.height);
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+    imagenes.push(new Uint8Array(await blob.arrayBuffer()));
+  }
+  return imagenes;
+}
 
+async function generarEpubCompleto(tituloExpediente, ordenadas, onProgreso) {
+  const enc = new TextEncoder();
+  const uid = 'urn:uuid:infocivil-' + Date.now();
+  const archivosContenido = [];
+  const manifestItems = [];
+  const spineItems = [];
+  const navPoints = [];
+  let numero = 1, playOrder = 1;
+
+  for (const act of ordenadas) {
+    const tipo = (act.tipo || '').trim();
+    const descripcion = (act.descripcion || '').trim();
+    const tituloCorto = (tipo || descripcion) ? [tipo, descripcion].filter(Boolean).join(' - ') : (act.titulo || ('Actuación ' + numero));
+    const fecha = act.fecha || '';
+    let urlPdf = act.urlPdf || act.url || '';
+    if (urlPdf && urlPdf.indexOf('http') !== 0) urlPdf = 'https://scw.pjn.gov.ar' + urlPdf;
+    if (urlPdf.indexOf('/scw/viewer') !== -1 && urlPdf.indexOf('download=true') === -1) {
+      urlPdf += (urlPdf.indexOf('?') !== -1 ? '&' : '?') + 'download=true';
+    }
+    const urlPublica = act.urlPublica || urlPdf.replace(/[&?]download=true/g, '') || '';
+    const idCap = 'cap' + numero;
+    const numLabel = String(numero).padStart(3, '0');
+
+    if (onProgreso) onProgreso(numero, ordenadas.length, tituloCorto);
+
+    let cuerpo;
+    try {
+      const resp = await fetch(urlPdf, { credentials: 'include' });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const bytes = new Uint8Array(await resp.arrayBuffer());
+      const paginas = await renderizarPdfComoImagenes(bytes);
+      cuerpo = paginas.map((data, i) => {
+        const nombreImg = 'images/' + idCap + '-p' + (i + 1) + '.png';
+        archivosContenido.push({ name: 'OEBPS/' + nombreImg, data });
+        manifestItems.push('<item id="img-' + idCap + '-' + (i + 1) + '" href="' + nombreImg + '" media-type="image/png"/>');
+        return '<div class="pagina"><img src="' + nombreImg + '" alt="foja ' + (i + 1) + '"/></div>';
+      }).join('');
+    } catch (e) {
+      cuerpo = '<p class="error">ACTUACIÓN NO DISPONIBLE' + (e && e.message ? ' (' + escapeHtml(e.message) + ')' : '') + '.</p>'
+        + '<p>Consultar directamente en el SCW:</p>';
+    }
+
+    const capXhtml = '<?xml version="1.0" encoding="UTF-8"?>'
+      + '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>' + escapeHtml(tituloCorto) + '</title>'
+      + '<style>body{font-family:serif;margin:0 1em}.pagina{margin:1em 0;text-align:center}.pagina img{max-width:100%;height:auto}h2{font-size:1.15em}.meta{font-size:0.85em;color:#555;margin-bottom:0.3em}.enlace{font-size:0.8em;word-break:break-all}.enlace a{color:#00008c}.error{color:#a00}</style>'
+      + '</head><body>'
+      + '<h2>' + numLabel + '. ' + escapeHtml(tituloCorto) + '</h2>'
+      + (fecha ? '<div class="meta">' + escapeHtml(fecha) + '</div>' : '')
+      + (urlPublica ? '<div class="enlace"><a href="' + escapeHtml(urlPublica) + '">' + escapeHtml(urlPublica) + '</a></div>' : '')
+      + cuerpo
+      + '</body></html>';
+
+    const nombreCap = idCap + '.xhtml';
+    archivosContenido.push({ name: 'OEBPS/' + nombreCap, data: enc.encode(capXhtml) });
+    manifestItems.push('<item id="' + idCap + '" href="' + nombreCap + '" media-type="application/xhtml+xml"/>');
+    spineItems.push('<itemref idref="' + idCap + '"/>');
+    navPoints.push('<navPoint id="np' + playOrder + '" playOrder="' + playOrder + '"><navLabel><text>'
+      + escapeHtml(numLabel + '. ' + tituloCorto) + '</text></navLabel><content src="' + nombreCap + '"/></navPoint>');
+    numero++; playOrder++;
+  }
+
+  const tituloEsc = escapeHtml(tituloExpediente);
   const containerXml = '<?xml version="1.0" encoding="UTF-8"?>'
     + '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
     + '<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>'
@@ -448,49 +534,46 @@ function generarEpubIndice(tituloExpediente, ordenadas) {
     + '<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="bookid">'
     + '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
     + '<dc:identifier id="bookid">' + uid + '</dc:identifier>'
-    + '<dc:title>Índice — ' + f.titulo + '</dc:title>'
+    + '<dc:title>' + tituloEsc + '</dc:title>'
     + '<dc:language>es</dc:language>'
+    + '<dc:date>' + new Date().toISOString().slice(0, 10) + '</dc:date>'
     + '</metadata>'
-    + '<manifest>'
-    + '<item id="indice" href="indice.xhtml" media-type="application/xhtml+xml"/>'
-    + '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>'
-    + '</manifest>'
-    + '<spine toc="ncx"><itemref idref="indice"/></spine>'
+    + '<manifest>' + manifestItems.join('') + '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/></manifest>'
+    + '<spine toc="ncx">' + spineItems.join('') + '</spine>'
     + '</package>';
 
   const tocNcx = '<?xml version="1.0" encoding="UTF-8"?>'
     + '<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">'
     + '<head><meta name="dtb:uid" content="' + uid + '"/></head>'
-    + '<docTitle><text>Índice — ' + f.titulo + '</text></docTitle>'
-    + '<navMap><navPoint id="n1" playOrder="1"><navLabel><text>Índice de actuaciones</text></navLabel><content src="indice.xhtml"/></navPoint></navMap>'
+    + '<docTitle><text>' + tituloEsc + '</text></docTitle>'
+    + '<navMap>' + navPoints.join('') + '</navMap>'
     + '</ncx>';
 
-  const indiceXhtml = '<?xml version="1.0" encoding="UTF-8"?>'
-    + '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Índice</title>'
-    + '<style>body{font-family:serif}li{margin-bottom:0.6em}a{color:#00008c}</style>'
-    + '</head><body>'
-    + bloqueEncabezado(f)
-    + '<ol>' + f.filas + '</ol>'
-    + '</body></html>';
-
-  return crearZip([
+  const archivosFinales = [
     { name: 'mimetype', data: enc.encode('application/epub+zip') },
     { name: 'META-INF/container.xml', data: enc.encode(containerXml) },
     { name: 'OEBPS/content.opf', data: enc.encode(contentOpf) },
     { name: 'OEBPS/toc.ncx', data: enc.encode(tocNcx) },
-    { name: 'OEBPS/indice.xhtml', data: enc.encode(indiceXhtml) },
-  ]);
+    ...archivosContenido,
+  ];
+  return crearZip(archivosFinales, 'application/epub+zip');
 }
-document.getElementById('btnIndiceHiperEpub').addEventListener('click', () => ejecutar(async () => {
+
+document.getElementById('btnExportarEpub').addEventListener('click', () => ejecutar(async () => {
+  if (!exp.tabId) { estado('Para exportar el EPUB hace falta volver a consultar el expediente.', 'error'); return; }
   const actuaciones = exp.actuaciones.length ? exp.actuaciones : exp.archivos;
   const ordenadas = ordenarPorFechaAsc(actuaciones);
   const tituloExp = exp.tituloExpediente || exp.folderName || exp.nombre;
-  const blob = generarEpubIndice(tituloExp, ordenadas);
+  const blob = await generarEpubCompleto(tituloExp, ordenadas, (n, total, titulo) => {
+    estado('Armando EPUB… actuación ' + n + '/' + total + ': ' + String(titulo).slice(0, 45), 'cargando');
+  });
   const url = URL.createObjectURL(blob);
-  const nombreArchivo = sanitizarNombreLocal(tituloExp).slice(0, 50) + '_INDICE.epub';
+  const nombreArchivo = sanitizarNombreLocal(tituloExp).slice(0, 50) + '.epub';
   await new Promise(res => chrome.downloads.download({ url, filename: nombreArchivo, saveAs: true }, res));
-  estado('✓ EPUB descargado (' + ordenadas.length + ' actuaciones).', 'ok');
+  estado('✓ EPUB listo (' + ordenadas.length + ' actuaciones). Se abrió el diálogo para guardarlo.', 'ok');
 }));
+
+
 
 document.querySelector('[data-formato="unificado-indice"]').addEventListener('click', () => ejecutar(async () => {
   if (!exp.tabId) { estado('Para generar el PDF unificado hace falta volver a consultar el expediente.', 'error'); return; }

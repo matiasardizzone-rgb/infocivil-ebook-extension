@@ -18,7 +18,10 @@ function crc32(d) {
 }
 
 // files: [{ name: 'ruta/dentro/del/zip.ext', data: Uint8Array }]
-export function crearZip(files) {
+// mimeType: tipo del Blob resultante — 'application/zip' por defecto, pero
+// un EPUB (que por dentro ES un zip) necesita 'application/epub+zip' para
+// que no se descargue con extensión .zip en vez de .epub.
+export function crearZip(files, mimeType) {
   const lp = [], cd = [];
   let off = 0;
   const now = new Date();
@@ -44,5 +47,5 @@ export function crearZip(files) {
   ev.setUint32(0, 0x06054b50, true); ev.setUint16(4, 0, true); ev.setUint16(6, 0, true);
   ev.setUint16(8, files.length, true); ev.setUint16(10, files.length, true);
   ev.setUint32(12, cds, true); ev.setUint32(16, off, true); ev.setUint16(20, 0, true);
-  return new Blob([...lp, ...cd, eo], { type: 'application/zip' });
+  return new Blob([...lp, ...cd, eo], { type: mimeType || 'application/zip' });
 }
