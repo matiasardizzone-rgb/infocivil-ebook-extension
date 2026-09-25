@@ -160,26 +160,54 @@
         const archivos   = message.archivos || [];
         const folderName = message.folderName || 'Expediente';
         const total      = archivos.length;
-        const zipEntries = [], pdfNames = [];
-        let descargados = 0, errores = 0, indice = 1;
+        let descargados = 0, errores = 0, completados = 0;
 
+        // Antes: un fetch atrás de otro, uno a la vez — para un expediente
+        // grande (cientos de actuaciones) eso son cientos de idas y vueltas
+        // a la red EN FILA. Mismo pool de 3 descargas en simultáneo que ya
+        // usa "PDF unificado" (background/index.js) y que ya está probado
+        // contra el SCW real — acá se replica el mismo patrón, no es nuevo.
+        // Los resultados se guardan por POSICIÓN ORIGINAL (resultados[i]),
+        // no en el orden en que van terminando (que con 3 en simultáneo ya
+        // no coincide con el orden de las actuaciones) — así el ZIP sale
+        // numerado igual que antes: 1, 2, 3... solo lo que se pudo bajar,
+        // en el orden real del expediente.
+        const resultados = new Array(total);
+        const CONC = 3;
+        let siguiente = 0;
+        async function worker() {
+          while (siguiente < total) {
+            const i = siguiente++;
+            const archivo = archivos[i];
+            let url = archivo.url ? String(archivo.url) : '';
+            if (!url) { errores++; completados++; continue; }
+            if (url.indexOf('http') !== 0) url = 'https://scw.pjn.gov.ar' + url;
+            if (url.indexOf('/scw/viewer') !== -1 && url.indexOf('download=true') === -1)
+              url += (url.indexOf('?') !== -1 ? '&' : '?') + 'download=true';
+            try {
+              const buffer = await descargarPDFValidado(url, 30000);
+              resultados[i] = { archivo, buffer };
+              descargados++;
+            } catch (err) {
+              console.warn('[PJN] Descarga descartada (' + (archivo.titulo || 'documento') + '):', err.message);
+              errores++;
+            }
+            completados++;
+            chrome.runtime.sendMessage({ action: 'actualizarProgreso', progreso: { total, descargados, errores, terminado: false }, nextIndex: completados + 1 });
+          }
+        }
+        await Promise.all(Array.from({ length: Math.min(CONC, total) }, worker));
+
+        const zipEntries = [], pdfNames = [];
+        let indice = 1;
         for (let i = 0; i < total; i++) {
-          const archivo = archivos[i];
-          let url = archivo.url ? String(archivo.url) : '';
-          if (!url) { errores++; continue; }
-          if (url.indexOf('http') !== 0) url = 'https://scw.pjn.gov.ar' + url;
-          if (url.indexOf('/scw/viewer') !== -1 && url.indexOf('download=true') === -1)
-            url += (url.indexOf('?') !== -1 ? '&' : '?') + 'download=true';
+          const r = resultados[i];
+          if (!r) continue;
           const numero   = leftPad(indice, 4);
-          const basename = numero + ' - ' + sanitizar(archivo.titulo || 'documento') + (archivo.extension || '.pdf');
-          try {
-            const buffer = await descargarPDFValidado(url, 30000);
-            zipEntries.push({ name: basename, data: new Uint8Array(buffer) });
-            pdfNames.push(basename);
-            descargados++; indice++;
-          } catch (err) { console.warn('[PJN] Descarga descartada (' + basename + '):', err.message); errores++; }
-          if (i % 5 === 0 || i === total - 1)
-            chrome.runtime.sendMessage({ action: 'actualizarProgreso', progreso: { total, descargados, errores, terminado: false }, nextIndex: indice });
+          const basename = numero + ' - ' + sanitizar(r.archivo.titulo || 'documento') + (r.archivo.extension || '.pdf');
+          zipEntries.push({ name: basename, data: new Uint8Array(r.buffer) });
+          pdfNames.push(basename);
+          indice++;
         }
 
         const viewerBytes = new TextEncoder().encode(generarViewerHtml(folderName, pdfNames));
@@ -214,32 +242,57 @@
           caratula: obtenerCaratula(), archivos
         }, r));
 
-        let descargados = 0, errores = 0, indice = 1;
+        // Fase 1: descargar todas las actuaciones, hasta 3 en simultáneo —
+        // esta es la operación que corre CADA VEZ que se abre un
+        // expediente, así que es la que más se nota. Mismo motivo y mismo
+        // patrón que crearYDescargarZip más arriba: resultados[i] guarda
+        // cada descarga por POSICIÓN ORIGINAL (no por orden de llegada),
+        // para poder guardarlas en orden real en la Fase 2.
+        let descargados = 0, errores = 0, completados = 0;
+        const resultados = new Array(total);
+        const CONC = 3;
+        let siguiente = 0;
+        async function worker() {
+          while (siguiente < total) {
+            const i = siguiente++;
+            const archivo = archivos[i];
+            let url = archivo.url ? String(archivo.url) : '';
+            if (!url) { errores++; completados++; continue; }
+            if (url.indexOf('http') !== 0) url = 'https://scw.pjn.gov.ar' + url;
+            if (url.indexOf('/scw/viewer') !== -1 && url.indexOf('download=true') === -1)
+              url += (url.indexOf('?') !== -1 ? '&' : '?') + 'download=true';
+            const urlHiper = url.replace(/[&?]download=true/g, '');
+            try {
+              const buffer = await descargarPDFValidado(url, 30000);
+              resultados[i] = { archivo, buffer, urlHiper };
+              descargados++;
+            } catch (err) {
+              console.warn('[PJN] Descarga descartada al guardar en biblioteca (' + (archivo.titulo || 'documento') + '):', err.message);
+              errores++;
+            }
+            completados++;
+            if (completados % 3 === 0 || completados === total)
+              chrome.runtime.sendMessage({ action: 'actualizarProgreso', progreso: { total, descargados, errores, terminado: false }, nextIndex: completados + 1 });
+          }
+        }
+        await Promise.all(Array.from({ length: Math.min(CONC, total) }, worker));
+
+        // Fase 2: guardar en IndexedDB (vía background) en el orden real
+        // del expediente, uno por uno — acá no hace falta paralelizar, el
+        // cuello de botella era la red (Fase 1), no este paso.
+        let indice = 1;
         for (let i = 0; i < total; i++) {
-          const archivo = archivos[i];
-          let url = archivo.url ? String(archivo.url) : '';
-          if (!url) { errores++; continue; }
-          if (url.indexOf('http') !== 0) url = 'https://scw.pjn.gov.ar' + url;
-          if (url.indexOf('/scw/viewer') !== -1 && url.indexOf('download=true') === -1)
-            url += (url.indexOf('?') !== -1 ? '&' : '?') + 'download=true';
-          const urlHiper = url.replace(/[&?]download=true/g, '');
-          try {
-            const buffer = await descargarPDFValidado(url, 30000);
-            const bufferB64 = arrayBufferABase64(buffer);
-            console.log('[PJN DIAG] doc', indice, '| bytes originales:', buffer.byteLength,
-              '| primeros bytes:', new Uint8Array(buffer.slice(0,5)).join(','),
-              '| base64 len:', bufferB64.length);
-            await new Promise(r => chrome.runtime.sendMessage({
-              action: 'bibliotecaGuardarDocumento', cid, indice,
-              titulo: archivo.titulo || 'documento',
-              esHistorica: archivo.esHistorica || false,
-              extension: archivo.extension || '.pdf',
-              urlHiper, bufferB64, mime: 'application/pdf'
-            }, r));
-            descargados++; indice++;
-          } catch (err) { console.warn('[PJN] Descarga descartada al guardar en biblioteca (doc ' + indice + '):', err.message); errores++; }
-          if (i % 3 === 0 || i === total - 1)
-            chrome.runtime.sendMessage({ action: 'actualizarProgreso', progreso: { total, descargados, errores, terminado: false }, nextIndex: indice });
+          const r = resultados[i];
+          if (!r) continue;
+          const bufferB64 = arrayBufferABase64(r.buffer);
+          await new Promise(res => chrome.runtime.sendMessage({
+            action: 'bibliotecaGuardarDocumento', cid, indice,
+            titulo: r.archivo.titulo || 'documento',
+            esHistorica: r.archivo.esHistorica || false,
+            extension: r.archivo.extension || '.pdf',
+            urlHiper: r.urlHiper, bufferB64, mime: 'application/pdf'
+          }, res));
+          indice++;
         }
 
         await new Promise(r => chrome.runtime.sendMessage({ action: 'bibliotecaFinalizar', cid, archivos }, r));
@@ -899,7 +952,7 @@ init();
   async function recorrerTodasLasPaginas(){
     const r=[],u=new Set();
     ultimaPaginacionCompleta = true;
-    await esperar(1500);await irAPrimeraPagina();await esperar(3000);
+    await esperarTablaLista(4500);await irAPrimeraPagina();
     let n=obtenerPaginaActual();
     while(true){
       console.log('[PJN] Scrapeando pág',n);
@@ -999,6 +1052,12 @@ init();
   function ejecutarEnPaginaViaBg(c){return new Promise(r=>{chrome.runtime.sendMessage({action:'runInPageWorld',code:c},()=>setTimeout(r,200));});}
   function obtenerHtmlTabla(){const t=document.querySelector('#expediente\\:action-table tbody');return t?t.innerHTML:'';}
   function esperarCambioDOM(h,t){return new Promise(r=>{const i=Date.now();const id=setInterval(()=>{if(obtenerHtmlTabla()!==h){clearInterval(id);r(true);}else if(Date.now()-i>=t){clearInterval(id);r(false);}},300);});}
+  // Antes de arrancar a leer la tabla de actuaciones: esperar de verdad a
+  // que tenga contenido, en vez de un sleep fijo de 4.5s pase lo que pase
+  // (1.5s + 3s, sin importar si la tabla ya estaba lista mucho antes).
+  // Mismo techo total que antes (4.5s) para no arriesgar nada en una
+  // conexión lenta — solo deja de esperar de más cuando no hace falta.
+  function esperarTablaLista(t){return new Promise(r=>{const i=Date.now();const id=setInterval(()=>{if(obtenerHtmlTabla().trim().length>0){clearInterval(id);r(true);}else if(Date.now()-i>=t){clearInterval(id);r(false);}},200);});}
   function obtenerNombreExpediente(){const m=document.body.innerText.match(/[A-Z]{2,4}\s?\d+\/\d+/);return m?m[0].replace(/\//g,'-'):'Expediente';}
   function obtenerCid(){const m=window.location.href.match(/cid=(\d+)/);return m?m[1]:null;}
   function arrayBufferABase64(buffer){

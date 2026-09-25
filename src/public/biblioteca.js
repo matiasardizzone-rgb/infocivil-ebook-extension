@@ -254,16 +254,31 @@ async function abrirExpediente(cid) {
     docsDb = await db.obtenerDocumentos(cid);
     if (!docsDb.length) { alert('Este expediente no tiene documentos guardados.'); return; }
 
-    // Un getDocument() por PDF, pero SIN renderizar páginas todavía (lazy).
-    pdfProxies = [];
+    // Un getDocument() por PDF (para saber cuántas páginas tiene cada uno),
+    // pero SIN renderizar páginas todavía — eso ya es lazy, solo se pinta
+    // lo que se ve. Este paso previo antes era secuencial (uno atrás de
+    // otro): en un expediente grande eso ya se sentía como demora al abrir
+    // el libro, aunque no baje nada de la red. Hasta 4 en simultáneo acá
+    // (es trabajo local — parsear la estructura del PDF, no un fetch — así
+    // que puede ir un poco más concurrente que las descargas de red).
+    // pdfProxies[di] se llena por POSICIÓN, no por orden de terminación, y
+    // recién con TODOS listos se arma "pages" en el orden real de lectura
+    // (di, luego p) — si se armara a medida que cada uno termina, el orden
+    // de las hojas en el libro quedaría mezclado.
+    pdfProxies = new Array(docsDb.length);
     pages = [];
+    const CONC_PARSE = 4;
+    let siguienteParse = 0;
+    async function workerParse() {
+      while (siguienteParse < docsDb.length) {
+        const di = siguienteParse++;
+        const buffer = await docsDb[di].blob.arrayBuffer();
+        pdfProxies[di] = await pdfjsLib.getDocument({ data: buffer, isEvalSupported: false, useSystemFonts: true }).promise;
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(CONC_PARSE, docsDb.length) }, workerParse));
     for (let di = 0; di < docsDb.length; di++) {
-      const doc = docsDb[di];
-      const buffer = await doc.blob.arrayBuffer();
-      console.log('[PJN DIAG LIB] doc', di, '| blob.size:', doc.blob.size, '| buffer.byteLength:', buffer.byteLength,
-        '| primeros bytes:', Array.from(new Uint8Array(buffer.slice(0,5))).join(','));
-      const pdf = await pdfjsLib.getDocument({ data: buffer, isEvalSupported: false, useSystemFonts: true }).promise;
-      pdfProxies.push(pdf);
+      const pdf = pdfProxies[di], doc = docsDb[di];
       for (let p = 1; p <= pdf.numPages; p++) pages.push({ di, p, doc, canvas: null, textLayer: null });
     }
 
