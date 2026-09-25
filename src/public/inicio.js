@@ -365,16 +365,32 @@ function sanitizarNombreLocal(texto) {
 // Datos comunes a las tres exportaciones del índice (HTML, Word, EPUB) —
 // cada una arma su propio documento alrededor de este mismo fragmento, así
 // las filas no se repiten tres veces con el riesgo de desalinearse entre sí.
-function fragmentoIndice(tituloExpediente, ordenadas) {
-  const filas = ordenadas.map((act, i) => {
+// Datos por entrada, sin renderizar todavía — HTML (grilla con botones),
+// Word y PDF arman su propio markup alrededor de esta misma lista, así
+// ninguno puede desalinearse de los otros en cómo arma el título corto.
+function entradasIndice(ordenadas) {
+  return ordenadas.map((act, i) => {
     const tipo = (act.tipo || '').trim();
     const descripcion = (act.descripcion || '').trim();
     const tituloCorto = (tipo || descripcion) ? [tipo, descripcion].filter(Boolean).join(' - ') : (act.titulo || ('Actuación ' + (i + 1)));
-    const fecha = act.fecha || '';
-    const url = act.urlPublica || act.url || '';
-    const texto = escapeHtml(String(i + 1).padStart(3, '0') + '. ' + tituloCorto + (fecha ? '  (' + fecha + ')' : ''));
-    return url
-      ? '<li><a href="' + escapeHtml(url) + '" target="_blank" rel="noopener">' + texto + '</a></li>'
+    return {
+      numLabel: String(i + 1).padStart(3, '0'),
+      // tipo/descripcion por separado (para la grilla HTML, que los
+      // muestra en líneas distintas) además de tituloCorto ya combinado
+      // (para Word y el índice del PDF, que van en una sola línea).
+      tipo, descripcion,
+      tituloCorto: tituloCorto || (act.titulo || ('Actuación ' + (i + 1))),
+      fecha: act.fecha || '', url: act.urlPublica || act.url || '',
+    };
+  });
+}
+
+function fragmentoIndice(tituloExpediente, ordenadas) {
+  const entradas = entradasIndice(ordenadas);
+  const filas = entradas.map(e => {
+    const texto = escapeHtml(e.numLabel + '. ' + e.tituloCorto + (e.fecha ? '  (' + e.fecha + ')' : ''));
+    return e.url
+      ? '<li><a href="' + escapeHtml(e.url) + '" target="_blank" rel="noopener">' + texto + '</a></li>'
       : '<li>' + texto + '</li>';
   }).join('\n');
   return {
@@ -382,6 +398,7 @@ function fragmentoIndice(tituloExpediente, ordenadas) {
     cantidad: ordenadas.length,
     generado: new Date().toLocaleDateString('es-AR'),
     filas,
+    entradas,
   };
 }
 function bloqueEncabezado(f) {
@@ -390,32 +407,27 @@ function bloqueEncabezado(f) {
     + '<div class="aviso">Generado ' + f.generado + ' · copia de trabajo, sin validez de firma electrónica</div>';
 }
 
-function generarIndiceHTML(tituloExpediente, ordenadas) {
-  const f = fragmentoIndice(tituloExpediente, ordenadas);
-  return '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">'
-    + '<title>Índice — ' + f.titulo + '</title>'
-    + '<style>'
-    + 'body{font-family:Georgia,serif;max-width:820px;margin:40px auto;padding:0 20px;color:#1a1a2e;background:#faf8f3}'
-    + 'h1{font-size:22px;line-height:1.3;margin-bottom:4px}'
-    + '.sub{color:#555;font-size:14px;margin-bottom:2px}'
-    + '.aviso{color:#555;font-size:11px;margin-bottom:24px}'
-    + 'ol{padding-left:0;list-style:none}'
-    + 'li{margin-bottom:10px;font-size:14px;line-height:1.4}'
-    + 'a{color:#00008c;text-decoration:none;border-bottom:1px solid transparent}'
-    + 'a:hover{border-bottom-color:#00008c}'
-    + '</style></head><body>'
-    + bloqueEncabezado(f)
-    + '<ol>' + f.filas + '</ol>'
-    + '</body></html>';
-}
 document.getElementById('btnIndiceHiperHTML').addEventListener('click', () => ejecutar(async () => {
   const actuaciones = exp.actuaciones.length ? exp.actuaciones : exp.archivos;
   const ordenadas = ordenarPorFechaAsc(actuaciones);
-  const html = generarIndiceHTML(exp.tituloExpediente || exp.folderName || exp.nombre, ordenadas);
-  const blob = new Blob([html], { type: 'text/html' });
-  const url = URL.createObjectURL(blob);
-  window.open(url, '_blank');
-  estado('✓ Índice abierto en una pestaña nueva — copiá y pegá el texto donde lo necesites, los enlaces viajan con él.', 'ok');
+  const tituloExp = exp.tituloExpediente || exp.folderName || exp.nombre;
+  const entradas = entradasIndice(ordenadas);
+  // Los datos viajan por chrome.storage.local (no un blob: con el HTML
+  // armado a mano): un blob: hereda la política de seguridad de la
+  // extensión pero no cuenta como su mismo origen para cargar/ejecutar
+  // JS propio — indice-grid.html es una página real de la extensión, que
+  // arma la grilla y los botones (Copiar/Abrir) leyendo esto al cargar.
+  await new Promise(res => chrome.storage.local.set({
+    indiceGrid: { titulo: tituloExp, generado: new Date().toLocaleDateString('es-AR'), entradas }
+  }, res));
+  // chrome.tabs.create(), no window.open(): una pestaña abierta con
+  // window.open() carga el HTML bien, pero queda en un contexto donde
+  // chrome.storage (y el resto de la API de extensión) no está
+  // disponible — comprobado directamente, no es un problema de timing.
+  // chrome.tabs.create() es la forma canónica de abrir una pestaña de la
+  // extensión con privilegios completos.
+  await new Promise(res => chrome.tabs.create({ url: chrome.runtime.getURL('src/public/indice-grid.html') }, res));
+  estado('✓ Índice abierto en una pestaña nueva.', 'ok');
 }));
 
 // Word (.doc): NO es un .docx real (eso pediría una librería para armar el
@@ -630,7 +642,7 @@ document.querySelector('[data-formato="unificado-indice"]').addEventListener('cl
     folderName: expediente.folderName,
     tituloExpediente: expediente.caratula,
     archivos: documentos.map(d => ({ titulo: d.titulo, esHistorica: d.esHistorica })),
-    actuaciones: documentos.map(d => ({ titulo: d.titulo, fecha: d.fecha, tipo: d.tipo, esHistorica: d.esHistorica, urlPublica: d.urlHiper })),
+    actuaciones: documentos.map(d => ({ titulo: d.titulo, fecha: d.fecha, tipo: d.tipo, descripcion: d.descripcion, esHistorica: d.esHistorica, urlPublica: d.urlHiper })),
     aviso: '', paginacionIncompleta: false, historicasFaltantes: false,
     vinculados: [],
   };
