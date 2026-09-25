@@ -62,6 +62,20 @@ function iniciarBusqueda(datos) {
     // el de la conexión vieja cerrándose a propósito, no un corte real.
     if (puerto !== p) return;
     puerto = null;
+    // Si hay algo en curso (ejecutar() puso ocupado=true), NO lo
+    // interrumpimos: este puerto solo hace falta durante la búsqueda en
+    // sí y para abrir vinculados — un módulo como Exportar EPUB hace su
+    // propio trabajo (fetch directo a cada actuación), completamente
+    // aparte, y puede tardar varios minutos; en ese lapso el service
+    // worker se apaga solo por inactividad (nada raro: no le llega
+    // ningún mensaje por ESTE puerto durante todo ese tiempo) y este
+    // disconnect dispara igual, aunque no tenga nada que ver con lo que
+    // está corriendo. Tapar su progreso real y bloquear los botones acá
+    // sería peor que no avisar nada: el operador ve "se perdió la
+    // conexión" y da por perdido un EPUB que en realidad sigue armándose
+    // bien. Si lo que está en curso SÍ necesitaba este puerto, va a
+    // fallar por su cuenta con su propio mensaje al intentar usarlo.
+    if (ocupado) return;
     const msg = 'Se perdió la conexión con la extensión. Volvé a consultar el expediente.';
     if (!$('vistaExpediente').hidden) { estado(msg, 'error'); bloquearAcciones(true); }
     else { estadoBuscar(msg, 'error'); $('btnConsultar').disabled = false; }
