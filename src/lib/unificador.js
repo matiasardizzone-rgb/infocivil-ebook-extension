@@ -53,7 +53,7 @@ function fechaDe(actuacion) {
 // elementos comparados le falta fecha válida, se los trata como "iguales"
 // (comparator devuelve 0) para que el sort estable conserve el orden
 // original entre ellos — nunca se empujan al principio o al final.
-function ordenarPorFechaAsc(actuaciones) {
+export function ordenarPorFechaAsc(actuaciones) {
   return actuaciones
     .map((a, i) => ({ a, i }))
     .sort((x, y) => {

@@ -5,6 +5,7 @@
 // abierta mientras esta pantalla esté abierta (las descargas la usan).
 
 import { JURISDICCIONES, valorPorSigla } from '../lib/jurisdicciones.js';
+import { ordenarPorFechaAsc } from '../lib/unificador.js';
 import * as db from '../lib/db.js';
 
 const $ = id => document.getElementById(id);
@@ -330,6 +331,54 @@ document.getElementById('btnIndiceHiper').addEventListener('click', () => ejecut
   }, res));
   if (!r || !r.ok) throw new Error((r && r.error) || 'No se pudo generar el índice.');
   estado('✓ Índice hipervinculado listo (' + r.total + ' actuaciones). Se abrió el diálogo para guardarlo.', 'ok');
+}));
+
+// Versión HTML del mismo índice: no pasa por ningún visor de PDF (Adobe
+// bloquea por defecto las conexiones salientes de un PDF recién
+// descargado — "Bloqueo de seguridad"), abre directo en una pestaña del
+// navegador, y al copiar y pegar el texto en Word los enlaces viajan con
+// él (un PDF no lleva el link al copiar texto plano, solo el texto).
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function generarIndiceHTML(tituloExpediente, ordenadas) {
+  const filas = ordenadas.map((act, i) => {
+    const tipo = (act.tipo || '').trim();
+    const descripcion = (act.descripcion || '').trim();
+    const tituloCorto = (tipo || descripcion) ? [tipo, descripcion].filter(Boolean).join(' - ') : (act.titulo || ('Actuación ' + (i + 1)));
+    const fecha = act.fecha || '';
+    const url = act.urlPublica || act.url || '';
+    const texto = escapeHtml(String(i + 1).padStart(3, '0') + '. ' + tituloCorto + (fecha ? '  (' + fecha + ')' : ''));
+    return url
+      ? '<li><a href="' + escapeHtml(url) + '" target="_blank" rel="noopener">' + texto + '</a></li>'
+      : '<li>' + texto + '</li>';
+  }).join('\n');
+  return '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">'
+    + '<title>Índice — ' + escapeHtml(tituloExpediente) + '</title>'
+    + '<style>'
+    + 'body{font-family:Georgia,serif;max-width:820px;margin:40px auto;padding:0 20px;color:#1a1a2e;background:#faf8f3}'
+    + 'h1{font-size:22px;line-height:1.3;margin-bottom:4px}'
+    + '.sub{color:#555;font-size:14px;margin-bottom:2px}'
+    + '.aviso{color:#555;font-size:11px;margin-bottom:24px}'
+    + 'ol{padding-left:0;list-style:none}'
+    + 'li{margin-bottom:10px;font-size:14px;line-height:1.4}'
+    + 'a{color:#00008c;text-decoration:none;border-bottom:1px solid transparent}'
+    + 'a:hover{border-bottom-color:#00008c}'
+    + '</style></head><body>'
+    + '<h1>' + escapeHtml(tituloExpediente) + '</h1>'
+    + '<div class="sub">Índice de actuaciones (' + ordenadas.length + ')</div>'
+    + '<div class="aviso">Generado ' + new Date().toLocaleDateString('es-AR') + ' · copia de trabajo, sin validez de firma electrónica</div>'
+    + '<ol>' + filas + '</ol>'
+    + '</body></html>';
+}
+document.getElementById('btnIndiceHiperHTML').addEventListener('click', () => ejecutar(async () => {
+  const actuaciones = exp.actuaciones.length ? exp.actuaciones : exp.archivos;
+  const ordenadas = ordenarPorFechaAsc(actuaciones);
+  const html = generarIndiceHTML(exp.tituloExpediente || exp.folderName || exp.nombre, ordenadas);
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+  estado('✓ Índice abierto en una pestaña nueva — copiá y pegá el texto donde lo necesites, los enlaces viajan con él.', 'ok');
 }));
 
 document.querySelector('[data-formato="unificado-indice"]').addEventListener('click', () => ejecutar(async () => {
