@@ -418,7 +418,7 @@ document.getElementById('btnIndiceHiperHTML').addEventListener('click', () => ej
   // JS propio — indice-grid.html es una página real de la extensión, que
   // arma la grilla y los botones (Copiar/Abrir) leyendo esto al cargar.
   await new Promise(res => chrome.storage.local.set({
-    indiceGrid: { titulo: tituloExp, generado: new Date().toLocaleDateString('es-AR'), entradas }
+    indiceGrid: { titulo: tituloExp, numero: exp.nombre || '', generado: new Date().toLocaleDateString('es-AR'), entradas }
   }, res));
   // chrome.tabs.create(), no window.open(): una pestaña abierta con
   // window.open() carga el HTML bien, pero queda en un contexto donde
