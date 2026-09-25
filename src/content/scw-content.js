@@ -288,6 +288,9 @@
           await new Promise(res => chrome.runtime.sendMessage({
             action: 'bibliotecaGuardarDocumento', cid, indice,
             titulo: r.archivo.titulo || 'documento',
+            fecha: r.archivo.fecha || '',
+            tipo: r.archivo.tipo || '',
+            descripcion: r.archivo.descripcion || '',
             esHistorica: r.archivo.esHistorica || false,
             extension: r.archivo.extension || '.pdf',
             urlHiper: r.urlHiper, bufferB64, mime: 'application/pdf'

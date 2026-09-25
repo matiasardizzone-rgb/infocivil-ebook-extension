@@ -31,20 +31,35 @@ conStorageListo(20, () => chrome.storage.local.get('indiceGrid', (res) => {
 
   const grilla = document.getElementById('grilla');
   datos.entradas.forEach(e => {
-    const tarjeta = document.createElement('div');
-    tarjeta.className = 'tarjeta';
+    const fila = document.createElement('div');
+    fila.className = 'fila';
+
+    const info = document.createElement('div');
+    info.className = 'info';
 
     const titulo = document.createElement('div');
     titulo.className = 'titulo';
-    titulo.textContent = e.numLabel + '. ' + e.tituloCorto;
-    tarjeta.appendChild(titulo);
+    // Tipo solo (p. ej. "001. ESCRITO AGREGADO") — la descripción va
+    // aparte, con su propia etiqueta "Detalle:", no mezclada en una sola
+    // línea (lo que se perdía antes cuando tituloCorto las combinaba).
+    titulo.textContent = e.numLabel + '. ' + (e.tipo || e.tituloCorto);
+    info.appendChild(titulo);
+
+    if (e.descripcion) {
+      const detalle = document.createElement('div');
+      detalle.className = 'detalle';
+      detalle.textContent = 'Detalle: ' + e.descripcion;
+      info.appendChild(detalle);
+    }
 
     if (e.fecha) {
       const fecha = document.createElement('div');
       fecha.className = 'fecha';
       fecha.textContent = e.fecha;
-      tarjeta.appendChild(fecha);
+      info.appendChild(fecha);
     }
+
+    fila.appendChild(info);
 
     if (e.url) {
       const botones = document.createElement('div');
@@ -71,9 +86,9 @@ conStorageListo(20, () => chrome.storage.local.get('indiceGrid', (res) => {
       btnAbrir.textContent = '↗ Abrir';
       botones.appendChild(btnAbrir);
 
-      tarjeta.appendChild(botones);
+      fila.appendChild(botones);
     }
 
-    grilla.appendChild(tarjeta);
+    grilla.appendChild(fila);
   });
 }));

@@ -373,7 +373,15 @@ function entradasIndice(ordenadas) {
     const tipo = (act.tipo || '').trim();
     const descripcion = (act.descripcion || '').trim();
     const tituloCorto = (tipo || descripcion) ? [tipo, descripcion].filter(Boolean).join(' - ') : (act.titulo || ('Actuación ' + (i + 1)));
-    return { numLabel: String(i + 1).padStart(3, '0'), tituloCorto, fecha: act.fecha || '', url: act.urlPublica || act.url || '' };
+    return {
+      numLabel: String(i + 1).padStart(3, '0'),
+      // tipo/descripcion por separado (para la grilla HTML, que los
+      // muestra en líneas distintas) además de tituloCorto ya combinado
+      // (para Word y el índice del PDF, que van en una sola línea).
+      tipo, descripcion,
+      tituloCorto: tituloCorto || (act.titulo || ('Actuación ' + (i + 1))),
+      fecha: act.fecha || '', url: act.urlPublica || act.url || '',
+    };
   });
 }
 
@@ -634,7 +642,7 @@ document.querySelector('[data-formato="unificado-indice"]').addEventListener('cl
     folderName: expediente.folderName,
     tituloExpediente: expediente.caratula,
     archivos: documentos.map(d => ({ titulo: d.titulo, esHistorica: d.esHistorica })),
-    actuaciones: documentos.map(d => ({ titulo: d.titulo, fecha: d.fecha, tipo: d.tipo, esHistorica: d.esHistorica, urlPublica: d.urlHiper })),
+    actuaciones: documentos.map(d => ({ titulo: d.titulo, fecha: d.fecha, tipo: d.tipo, descripcion: d.descripcion, esHistorica: d.esHistorica, urlPublica: d.urlHiper })),
     aviso: '', paginacionIncompleta: false, historicasFaltantes: false,
     vinculados: [],
   };

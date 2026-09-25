@@ -215,6 +215,7 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
         titulo: message.titulo,
         fecha: message.fecha,
         tipo: message.tipo,
+        descripcion: message.descripcion,
         esHistorica: message.esHistorica,
         extension: message.extension,
         urlHiper: message.urlHiper,
