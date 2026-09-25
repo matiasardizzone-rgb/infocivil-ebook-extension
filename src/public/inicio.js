@@ -6,6 +6,7 @@
 
 import { JURISDICCIONES, valorPorSigla } from '../lib/jurisdicciones.js';
 import { ordenarPorFechaAsc } from '../lib/unificador.js';
+import { crearZip } from '../lib/zip.js';
 import * as db from '../lib/db.js';
 
 const $ = id => document.getElementById(id);
@@ -341,7 +342,14 @@ document.getElementById('btnIndiceHiper').addEventListener('click', () => ejecut
 function escapeHtml(s) {
   return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
-function generarIndiceHTML(tituloExpediente, ordenadas) {
+function sanitizarNombreLocal(texto) {
+  return String(texto || 'Expediente').replace(/[/\\?%*:|"<>]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// Datos comunes a las tres exportaciones del índice (HTML, Word, EPUB) —
+// cada una arma su propio documento alrededor de este mismo fragmento, así
+// las filas no se repiten tres veces con el riesgo de desalinearse entre sí.
+function fragmentoIndice(tituloExpediente, ordenadas) {
   const filas = ordenadas.map((act, i) => {
     const tipo = (act.tipo || '').trim();
     const descripcion = (act.descripcion || '').trim();
@@ -353,8 +361,23 @@ function generarIndiceHTML(tituloExpediente, ordenadas) {
       ? '<li><a href="' + escapeHtml(url) + '" target="_blank" rel="noopener">' + texto + '</a></li>'
       : '<li>' + texto + '</li>';
   }).join('\n');
+  return {
+    titulo: escapeHtml(tituloExpediente),
+    cantidad: ordenadas.length,
+    generado: new Date().toLocaleDateString('es-AR'),
+    filas,
+  };
+}
+function bloqueEncabezado(f) {
+  return '<h1>' + f.titulo + '</h1>'
+    + '<div class="sub">Índice de actuaciones (' + f.cantidad + ')</div>'
+    + '<div class="aviso">Generado ' + f.generado + ' · copia de trabajo, sin validez de firma electrónica</div>';
+}
+
+function generarIndiceHTML(tituloExpediente, ordenadas) {
+  const f = fragmentoIndice(tituloExpediente, ordenadas);
   return '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">'
-    + '<title>Índice — ' + escapeHtml(tituloExpediente) + '</title>'
+    + '<title>Índice — ' + f.titulo + '</title>'
     + '<style>'
     + 'body{font-family:Georgia,serif;max-width:820px;margin:40px auto;padding:0 20px;color:#1a1a2e;background:#faf8f3}'
     + 'h1{font-size:22px;line-height:1.3;margin-bottom:4px}'
@@ -365,10 +388,8 @@ function generarIndiceHTML(tituloExpediente, ordenadas) {
     + 'a{color:#00008c;text-decoration:none;border-bottom:1px solid transparent}'
     + 'a:hover{border-bottom-color:#00008c}'
     + '</style></head><body>'
-    + '<h1>' + escapeHtml(tituloExpediente) + '</h1>'
-    + '<div class="sub">Índice de actuaciones (' + ordenadas.length + ')</div>'
-    + '<div class="aviso">Generado ' + new Date().toLocaleDateString('es-AR') + ' · copia de trabajo, sin validez de firma electrónica</div>'
-    + '<ol>' + filas + '</ol>'
+    + bloqueEncabezado(f)
+    + '<ol>' + f.filas + '</ol>'
     + '</body></html>';
 }
 document.getElementById('btnIndiceHiperHTML').addEventListener('click', () => ejecutar(async () => {
@@ -379,6 +400,96 @@ document.getElementById('btnIndiceHiperHTML').addEventListener('click', () => ej
   const url = URL.createObjectURL(blob);
   window.open(url, '_blank');
   estado('✓ Índice abierto en una pestaña nueva — copiá y pegá el texto donde lo necesites, los enlaces viajan con él.', 'ok');
+}));
+
+// Word (.doc): NO es un .docx real (eso pediría una librería para armar el
+// paquete OOXML/zip) — es HTML disfrazado de .doc, un truco que Word
+// reconoce y abre igual, con los hipervínculos intactos. Al abrirlo, Word
+// puede avisar que el formato no coincide con la extensión: es esperado,
+// "Sí" y abre normal.
+function generarIndiceWord(tituloExpediente, ordenadas) {
+  const f = fragmentoIndice(tituloExpediente, ordenadas);
+  return '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">'
+    + '<head><meta charset="UTF-8"><title>Índice — ' + f.titulo + '</title>'
+    + '<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom><w:DoNotOptimizeForBrowser/></w:WordDocument></xml><![endif]-->'
+    + '<style>body{font-family:Georgia,serif}h1{font-size:20pt}.sub{font-size:11pt;color:#555}.aviso{font-size:9pt;color:#555}li{margin-bottom:8pt;font-size:11pt}a{color:#00008c}</style>'
+    + '</head><body>'
+    + bloqueEncabezado(f)
+    + '<ol>' + f.filas + '</ol>'
+    + '</body></html>';
+}
+document.getElementById('btnIndiceHiperWord').addEventListener('click', () => ejecutar(async () => {
+  const actuaciones = exp.actuaciones.length ? exp.actuaciones : exp.archivos;
+  const ordenadas = ordenarPorFechaAsc(actuaciones);
+  const tituloExp = exp.tituloExpediente || exp.folderName || exp.nombre;
+  const docHtml = generarIndiceWord(tituloExp, ordenadas);
+  const blob = new Blob(['\ufeff', docHtml], { type: 'application/msword' });
+  const url = URL.createObjectURL(blob);
+  const nombreArchivo = sanitizarNombreLocal(tituloExp).slice(0, 50) + '_INDICE.doc';
+  await new Promise(res => chrome.downloads.download({ url, filename: nombreArchivo, saveAs: true }, res));
+  estado('✓ Word descargado — al abrirlo puede avisar que el formato no coincide con la extensión (es normal, así conserva los enlaces): elegí "Sí".', 'ok');
+}));
+
+// EPUB: por dentro es un ZIP con una estructura fija (mimetype sin
+// comprimir primero, META-INF/container.xml, el paquete OPF, la tabla de
+// contenidos NCX y el XHTML con el índice en sí) — se arma con el mismo
+// crearZip() casero que ya usa "Descargar ZIP", sin ninguna librería nueva.
+function generarEpubIndice(tituloExpediente, ordenadas) {
+  const f = fragmentoIndice(tituloExpediente, ordenadas);
+  const uid = 'urn:uuid:infocivil-' + Date.now();
+  const enc = new TextEncoder();
+
+  const containerXml = '<?xml version="1.0" encoding="UTF-8"?>'
+    + '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+    + '<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>'
+    + '</container>';
+
+  const contentOpf = '<?xml version="1.0" encoding="UTF-8"?>'
+    + '<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="bookid">'
+    + '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
+    + '<dc:identifier id="bookid">' + uid + '</dc:identifier>'
+    + '<dc:title>Índice — ' + f.titulo + '</dc:title>'
+    + '<dc:language>es</dc:language>'
+    + '</metadata>'
+    + '<manifest>'
+    + '<item id="indice" href="indice.xhtml" media-type="application/xhtml+xml"/>'
+    + '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>'
+    + '</manifest>'
+    + '<spine toc="ncx"><itemref idref="indice"/></spine>'
+    + '</package>';
+
+  const tocNcx = '<?xml version="1.0" encoding="UTF-8"?>'
+    + '<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">'
+    + '<head><meta name="dtb:uid" content="' + uid + '"/></head>'
+    + '<docTitle><text>Índice — ' + f.titulo + '</text></docTitle>'
+    + '<navMap><navPoint id="n1" playOrder="1"><navLabel><text>Índice de actuaciones</text></navLabel><content src="indice.xhtml"/></navPoint></navMap>'
+    + '</ncx>';
+
+  const indiceXhtml = '<?xml version="1.0" encoding="UTF-8"?>'
+    + '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Índice</title>'
+    + '<style>body{font-family:serif}li{margin-bottom:0.6em}a{color:#00008c}</style>'
+    + '</head><body>'
+    + bloqueEncabezado(f)
+    + '<ol>' + f.filas + '</ol>'
+    + '</body></html>';
+
+  return crearZip([
+    { name: 'mimetype', data: enc.encode('application/epub+zip') },
+    { name: 'META-INF/container.xml', data: enc.encode(containerXml) },
+    { name: 'OEBPS/content.opf', data: enc.encode(contentOpf) },
+    { name: 'OEBPS/toc.ncx', data: enc.encode(tocNcx) },
+    { name: 'OEBPS/indice.xhtml', data: enc.encode(indiceXhtml) },
+  ]);
+}
+document.getElementById('btnIndiceHiperEpub').addEventListener('click', () => ejecutar(async () => {
+  const actuaciones = exp.actuaciones.length ? exp.actuaciones : exp.archivos;
+  const ordenadas = ordenarPorFechaAsc(actuaciones);
+  const tituloExp = exp.tituloExpediente || exp.folderName || exp.nombre;
+  const blob = generarEpubIndice(tituloExp, ordenadas);
+  const url = URL.createObjectURL(blob);
+  const nombreArchivo = sanitizarNombreLocal(tituloExp).slice(0, 50) + '_INDICE.epub';
+  await new Promise(res => chrome.downloads.download({ url, filename: nombreArchivo, saveAs: true }, res));
+  estado('✓ EPUB descargado (' + ordenadas.length + ' actuaciones).', 'ok');
 }));
 
 document.querySelector('[data-formato="unificado-indice"]').addEventListener('click', () => ejecutar(async () => {

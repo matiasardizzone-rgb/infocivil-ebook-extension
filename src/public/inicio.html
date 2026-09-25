@@ -108,9 +108,11 @@
         </svg>
         <span class="accion-titulo">Generar índice hipervinculado</span>
         <span class="accion-desc">Un resumen de todas las actuaciones, cada una enlazada a su documento público en el SCW. Sin volver a descargar nada.</span>
-        <div style="display:flex;gap:8px;margin-top:10px">
-          <button id="btnIndiceHiper" class="idx-btn" title="Como PDF descargable — algunos lectores (Adobe) bloquean los enlaces por seguridad" style="flex:1;justify-content:center;padding:8px 0">📄 PDF</button>
-          <button id="btnIndiceHiperHTML" class="idx-btn" title="Abre en una pestaña — los enlaces siempre funcionan, y viajan si copiás y pegás en Word" style="flex:1;justify-content:center;padding:8px 0">🌐 HTML</button>
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+          <button id="btnIndiceHiper" class="idx-btn" title="Como PDF descargable — algunos lectores (Adobe) bloquean los enlaces por seguridad" style="flex:1 1 45%;justify-content:center;padding:8px 0">📄 PDF</button>
+          <button id="btnIndiceHiperHTML" class="idx-btn" title="Abre en una pestaña — los enlaces siempre funcionan, y viajan si copiás y pegás en Word" style="flex:1 1 45%;justify-content:center;padding:8px 0">🌐 HTML</button>
+          <button id="btnIndiceHiperWord" class="idx-btn" title="Documento .doc con los enlaces — puede avisar que el formato no coincide con la extensión, es normal" style="flex:1 1 45%;justify-content:center;padding:8px 0">📝 Word</button>
+          <button id="btnIndiceHiperEpub" class="idx-btn" title="Libro electrónico con el índice, para leer en un lector de EPUB" style="flex:1 1 45%;justify-content:center;padding:8px 0">📚 EPUB</button>
         </div>
       </div>
     </div>
