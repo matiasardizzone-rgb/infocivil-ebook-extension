@@ -1209,6 +1209,15 @@ init();
   }
 
   // { vinculados: [...], estado: 'ok'|'sin-vinculados'|'no-disponible' }
+  // Si esta solapa ya se había abierto antes en la vida de esta misma
+  // página (p. ej. se leyó una vez durante la búsqueda, y ahora se vuelve
+  // a pedir al tocar "Abrir" en un vinculado), un solo clic puede no
+  // disparar una recarga nueva por AJAX — RichFaces a veces no reacciona
+  // a un clic sobre una solapa que ya considera "visitada", aunque su
+  // contenido ya no esté en el DOM. Por eso, si no aparecen filas en un
+  // primer tramo de espera, se reintenta con un segundo clic antes de
+  // darse por vencido — no cuesta nada si ya andaba bien de una, y
+  // resuelve el caso en que no.
   async function leerVinculadosDOM() {
     if (!abrirSolapaVinculados()) return { vinculados: [], estado: 'no-disponible' };
 
@@ -1218,17 +1227,28 @@ init();
       await esperar(300);
     }
 
-    const inicio = Date.now();
-    while (Date.now() - inicio < 12000) {
-      const filas = leerFilasVinculados();
-      if (filas.length) return { vinculados: filas, estado: 'ok' };
-      const texto = (document.body && document.body.innerText) || '';
-      if (/total de 0 vinculado/i.test(texto) || /no se (han )?encontr/i.test(texto)) {
-        return { vinculados: [], estado: 'sin-vinculados' };
+    async function esperarFilas(tope) {
+      const inicio = Date.now();
+      while (Date.now() - inicio < tope) {
+        const filas = leerFilasVinculados();
+        if (filas.length) return { vinculados: filas, estado: 'ok' };
+        const texto = (document.body && document.body.innerText) || '';
+        if (/total de 0 vinculado/i.test(texto) || /no se (han )?encontr/i.test(texto)) {
+          return { vinculados: [], estado: 'sin-vinculados' };
+        }
+        await esperar(400);
       }
-      await esperar(400);
+      return null; // ni filas ni mensaje de "sin vinculados" — inconcluso, no se sabe todavía
     }
-    return { vinculados: [], estado: 'sin-vinculados' };
+
+    let resultado = await esperarFilas(7000);
+    if (resultado) return resultado;
+
+    // Inconcluso tras 7s: puede que el primer clic no haya disparado
+    // nada nuevo — reintenta con un segundo clic y espera lo que queda.
+    abrirSolapaVinculados();
+    resultado = await esperarFilas(10000);
+    return resultado || { vinculados: [], estado: 'sin-vinculados' };
   }
 
   // { cid: '...' } — expediente: ej. 'CIV 013719/2023/1' (los ceros no importan).

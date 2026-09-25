@@ -25,6 +25,7 @@ conStorageListo(20, () => chrome.storage.local.get('indiceGrid', (res) => {
     return;
   }
   document.title = 'Índice — ' + datos.titulo;
+  document.getElementById('numero').textContent = datos.numero || '';
   document.getElementById('titulo').textContent = datos.titulo;
   document.getElementById('sub').textContent = 'Índice de actuaciones (' + datos.entradas.length + ')';
   document.getElementById('aviso').textContent = 'Generado ' + datos.generado + ' · copia de trabajo, sin validez de firma electrónica';
