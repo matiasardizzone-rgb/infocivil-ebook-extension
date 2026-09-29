@@ -417,6 +417,14 @@ function volverABuscar(mensaje) {
 }
 
 $('btnGuardar').addEventListener('click', () => ejecutar(async () => {
+  // Sin pestaña del SCW (se llegó acá mostrando lo ya guardado, no con
+  // una consulta en vivo): no hay nada que volver a descargar — ya está
+  // en Mis expedientes. Sin este chequeo, accionEnPestana() intentaba
+  // chrome.tabs.sendMessage(null, ...) y tiraba "No matching signature".
+  if (!exp.tabId) {
+    estado('Ya está en Mis expedientes. Para traer novedades del SCW, usá el botón "Actualizar" de arriba.', 'ok');
+    return;
+  }
   const r = await guardar();
   estado('✓ Guardado en Mis expedientes (' + r.descargados + ' actuaciones' +
     (r.errores ? ', ' + r.errores + ' con error' : '') + ').', 'ok');
@@ -732,6 +740,13 @@ document.querySelector('[data-formato="unificado-indice"]').addEventListener('cl
 // guardado en vez de repetir la búsqueda completa (ver formBuscar).
 async function mostrarExpedienteGuardado(expediente) {
   const documentos = await db.obtenerDocumentos(expediente.cid);
+  const fecha = expediente.fechaVerificacion ? new Date(expediente.fechaVerificacion).toLocaleString('es-AR') : 'desconocida';
+  // exp.estado ('ok' | 'nuevo' | 'descargando') es lo último que se supo
+  // la última vez que se chequeó contra el SCW (acá, o desde la
+  // biblioteca) — no una verificación recién hecha, pero es lo mejor que
+  // hay sin volver a tocar el SCW. 'nuevo' = ya se sabía de actuaciones
+  // sin traer; cualquier otra cosa = al día según el último chequeo.
+  const hayNovedadesConocidas = expediente.estado === 'nuevo';
   exp = {
     cid: expediente.cid,
     tabId: null, // no hay pestaña del SCW abierta en este camino: no vino de una búsqueda en vivo
@@ -741,12 +756,13 @@ async function mostrarExpedienteGuardado(expediente) {
     tituloExpediente: expediente.caratula,
     archivos: documentos.map(d => ({ titulo: d.titulo, esHistorica: d.esHistorica })),
     actuaciones: documentos.map(d => ({ titulo: d.titulo, fecha: d.fecha, tipo: d.tipo, descripcion: d.descripcion, esHistorica: d.esHistorica, urlPublica: d.urlHiper })),
-    // Esto es lo que había guardado, no una consulta en vivo — capaz haya
-    // novedades en el SCW; el botón de renderAvisoGuardado() (ver
-    // mostrarExpediente) las trae sin salir de esta pantalla.
+    // Esto es lo que había guardado, no una consulta en vivo — el botón de
+    // renderAvisoGuardado() (ver mostrarExpediente) trae novedades del SCW
+    // sin salir de esta pantalla.
     desdeGuardado: true,
-    aviso: 'Mostrando la versión guardada (última verificación: ' +
-      (expediente.fechaVerificacion ? new Date(expediente.fechaVerificacion).toLocaleString('es-AR') : 'desconocida') + ').',
+    aviso: hayNovedadesConocidas
+      ? 'Hay actuaciones nuevas en el SCW sin traer' + (expediente.nuevasDetectadas ? ' (' + expediente.nuevasDetectadas + ')' : '') + ' — detectado el ' + fecha + '.'
+      : 'Al día (última verificación: ' + fecha + ').',
     paginacionIncompleta: false, historicasFaltantes: false,
     // Ya no queda siempre vacío: se persiste desde guardarEnBiblioteca
     // (ver accionEnPestana() e index.js) — un expediente guardado ANTES
