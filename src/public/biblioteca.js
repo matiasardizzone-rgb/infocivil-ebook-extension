@@ -265,21 +265,43 @@ async function abrirExpediente(cid) {
     // recién con TODOS listos se arma "pages" en el orden real de lectura
     // (di, luego p) — si se armara a medida que cada uno termina, el orden
     // de las hojas en el libro quedaría mezclado.
+    //
+    // Un documento con blob corrupto/vacío (guardado en algún momento con
+    // una descarga que quedó a medias) antes tiraba abajo TODO el
+    // expediente: el worker que lo tocaba rechazaba, Promise.all rechazaba
+    // entero, y ni los documentos sanos se llegaban a mostrar — visto
+    // contra la biblioteca real ("Cannot read properties of undefined
+    // (reading 'numPages')"). Ahora cada documento se parsea con su propio
+    // try/catch: el que falla se anota en erroresParse y se salta al armar
+    // "pages", en vez de abortar la apertura de los que sí están bien.
     pdfProxies = new Array(docsDb.length);
     pages = [];
+    const erroresParse = []; // { di, doc, mensaje }
     const CONC_PARSE = 4;
     let siguienteParse = 0;
     async function workerParse() {
       while (siguienteParse < docsDb.length) {
         const di = siguienteParse++;
-        const buffer = await docsDb[di].blob.arrayBuffer();
-        pdfProxies[di] = await pdfjsLib.getDocument({ data: buffer, isEvalSupported: false, useSystemFonts: true }).promise;
+        try {
+          if (!docsDb[di].blob) throw new Error('sin contenido guardado (blob vacío)');
+          const buffer = await docsDb[di].blob.arrayBuffer();
+          pdfProxies[di] = await pdfjsLib.getDocument({ data: buffer, isEvalSupported: false, useSystemFonts: true }).promise;
+        } catch (err) {
+          console.error('[PJN Biblioteca] No se pudo parsear el documento', di, docsDb[di] && docsDb[di].titulo, err);
+          erroresParse.push({ di, doc: docsDb[di], mensaje: (err && err.message) || String(err) });
+        }
       }
     }
     await Promise.all(Array.from({ length: Math.min(CONC_PARSE, docsDb.length) }, workerParse));
     for (let di = 0; di < docsDb.length; di++) {
       const pdf = pdfProxies[di], doc = docsDb[di];
+      if (!pdf) continue; // documento saltado por error — no aporta páginas al libro
       for (let p = 1; p <= pdf.numPages; p++) pages.push({ di, p, doc, canvas: null, textLayer: null });
+    }
+    if (!pages.length) {
+      throw new Error('Ningún documento de este expediente se pudo leer (' + erroresParse.length +
+        ' con error). El primero: "' + (erroresParse[0].doc.titulo || erroresParse[0].doc.tipo || 'sin título') +
+        '" — ' + erroresParse[0].mensaje);
     }
 
     flags = await cargarBanderitas(cid);
@@ -292,6 +314,15 @@ async function abrirExpediente(cid) {
     await render(0);
     renderFlags();
     verificarFirmasEnSegundoPlano(); // no bloquea: actualiza badges a medida que termina cada una
+
+    // Falla parcial (al menos un documento se pudo leer): se avisa después
+    // de mostrar el libro, sin bloquear la apertura de los que sí andan.
+    if (erroresParse.length) {
+      const lista = erroresParse.map(e => '· ' + (e.doc.titulo || e.doc.tipo || 'sin título') + ': ' + e.mensaje).join('\n');
+      alert('⚠️ Se abrió el expediente, pero ' + erroresParse.length + ' documento(s) no se pudieron leer ' +
+        'y quedaron afuera del libro:\n\n' + lista +
+        '\n\nProbá "🔄 Chequear novedades" desde la biblioteca para volver a descargarlos.');
+    }
   } catch (err) {
     console.error('[PJN Biblioteca] Error al abrir expediente:', err);
     alert('❌ No se pudo abrir el expediente:\n\n' + (err && err.message ? err.message : err) +
