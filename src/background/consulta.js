@@ -59,6 +59,11 @@ function pedir(tabId, mensaje) {
 // (condicion sobre el resultado de 'estadoPagina') antes de mandar el
 // mensaje real, y si aun así no llega respuesta (perdida por una
 // renavegación en el instante entre medio), reintentar.
+// Backoff de reintento: arranca en 350ms y sube de a 150ms hasta un techo
+// de 2000ms (antes: arrancaba en 600ms, subía de a 200ms). Sigue dando más
+// margen cuanto más tarda —para no hostigar a una pestaña que está
+// genuinamente atascada— pero deja de partir con casi un segundo de
+// ventaja regalado en el caso normal, que es la mayoría de las veces.
 async function pedirCuandoListo(tabId, condicion, mensaje, { timeoutMs = 30000 } = {}) {
   const inicio = Date.now();
   let ultimoEstado = null, intento = 0;
@@ -74,7 +79,7 @@ async function pedirCuandoListo(tabId, condicion, mensaje, { timeoutMs = 30000 }
       // entero pasaba sin dejar un solo rastro en la consola.
       if (intento % 3 === 0) console.warn('[Infocivil consulta] Pestaña sin terminar de cargar para "' +
         mensaje.action + '" (' + seg() + 's, intento ' + intento + '): status=' + tab.status + ' url=' + tab.url);
-      await esperar(Math.min(400 + intento * 200, 2000));
+      await esperar(Math.min(200 + intento * 150, 2000));
       continue;
     }
 
@@ -84,7 +89,7 @@ async function pedirCuandoListo(tabId, condicion, mensaje, { timeoutMs = 30000 }
       // nada (no se inyectó, o se está reinyectando justo ahora).
       if (intento % 3 === 0) console.warn('[Infocivil consulta] Sin respuesta del content script para "' +
         mensaje.action + '" (' + seg() + 's, intento ' + intento + '): url=' + tab.url);
-      await esperar(Math.min(400 + intento * 200, 2000));
+      await esperar(Math.min(200 + intento * 150, 2000));
       continue;
     }
 
@@ -101,7 +106,7 @@ async function pedirCuandoListo(tabId, condicion, mensaje, { timeoutMs = 30000 }
         ' esExpediente=' + estado.esExpediente + ' linksResultados=' + estado.linksResultados +
         ' mensajes=' + JSON.stringify(estado.mensajes));
     }
-    await esperar(Math.min(400 + intento * 200, 2000));
+    await esperar(Math.min(200 + intento * 150, 2000));
   }
   console.warn('[Infocivil consulta] Se agotó el tiempo esperando "' + mensaje.action + '" (' +
     Math.round(timeoutMs / 1000) + 's). Último estado visto:', ultimoEstado);
@@ -131,7 +136,15 @@ async function esperarEstado(tabId, condicion, timeoutMs, etiqueta = '') {
       console.warn('[Infocivil consulta] ' + etiqueta + ': pestaña sin terminar de cargar (' +
         Math.round((Date.now() - inicio) / 1000) + 's): status=' + tab.status + ' url=' + tab.url);
     }
-    await esperar(500);
+    // 200ms (antes 500ms): el costo de cada sondeo es un chrome.tabs.get +
+    // sendMessage, del orden de unos pocos ms — nada comparado con los
+    // segundos de round-trip del SCW. Sondear más seguido no lo sobrecarga
+    // y recorta hasta ~300ms de latencia "de detección" en cada una de las
+    // varias transiciones de esta función a lo largo de una consulta
+    // (home, resultado de búsqueda, confirmar expediente, volver de
+    // históricas) — no cambia ningún timeout, solo qué tan rápido se nota
+    // que la condición ya se cumplió.
+    await esperar(200);
   }
   return { vencido: true, ultimo };
 }
@@ -144,7 +157,9 @@ async function esperarStorage(clave, timeoutMs) {
     if (d.pjnHistoricasResult && d.pjnHistoricasResult.ok === false) {
       return { ok: false, error: d.pjnHistoricasResult.error };
     }
-    await esperar(700);
+    // 300ms (antes 700ms): chrome.storage.local.get es local, no hay
+    // round-trip de red que justifique espaciarlo tanto.
+    await esperar(300);
   }
   return { ok: false, error: 'tiempo agotado' };
 }

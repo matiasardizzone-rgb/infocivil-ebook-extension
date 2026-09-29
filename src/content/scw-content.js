@@ -364,7 +364,7 @@
           console.log('[PJN] Timeout esperando tabla históricas');
           clearInterval(id); resolve();
         }
-      }, 500);
+      }, 250); // 250ms (antes 500ms): sondeo local del DOM, sin costo real de acortarlo.
     });
   }
 
