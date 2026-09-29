@@ -348,6 +348,17 @@ async function consultar({ valorJurisdiccion, sigla, numero, anio, incidente }, 
     if (r && r.ok && r.cid) {
       cid = r.cid;
       nombre = objetivo; // ya no es el principal: la pantalla debe decir "CIV .../n", no el principal
+      // "vinculados" hasta acá es la solapa del PRINCIPAL (se leyó arriba,
+      // antes de abrir el incidente — es donde vive esa solapa). Ahora que
+      // cid pasó a ser el del incidente, esa lista queda mal atribuida: es
+      // la lista de vinculados DEL PRINCIPAL (que lo incluye a él mismo),
+      // no la del incidente. Sin este reset, quedaba guardado un
+      // expediente marcado como "vinculado de sí mismo" (visto en la
+      // práctica). No se vuelve a leer la solapa en la página del
+      // incidente (ya es bastante frágil como para pedirle más lecturas);
+      // se deja vacío, igual que ya hace abrirVinculadoEnPestanaExistente
+      // para este mismo caso.
+      vinculados = [];
     } else {
       aviso = 'No se pudo abrir el incidente ' + incidente + ' (' +
         ((r && r.error) || 'no encontrado en Vinculados') + '): se abrió el expediente principal.';
