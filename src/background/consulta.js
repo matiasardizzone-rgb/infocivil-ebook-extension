@@ -418,8 +418,23 @@ async function abrirVinculadoEnPestanaExistente(tabId, expedienteTexto, avisar, 
       }
     }
     if (!r || !r.ok || !r.cid) {
-      if (r && r.error) throw new Error(r.error); // "no encontrado en Vinculados": no tiene sentido reintentar con una búsqueda nueva, va a dar el mismo resultado
-      return null; // sin respuesta ni motivo claro: que decida el llamador
+      // Dos motivos de error posibles acá, y merecen trato distinto:
+      // - "... en la lista": la solapa Vinculados SÍ se pudo leer, y el
+      //   expediente pedido genuinamente no está en ella — no tiene
+      //   sentido reintentar con una búsqueda nueva, va a dar el mismo
+      //   resultado.
+      // - cualquier otro motivo (p. ej. "no se pudo abrir la solapa
+      //   'Vinculados': sin-vinculados" o "no-disponible"): la solapa
+      //   Vinculados que ya se había leído una vez al buscar puede haber
+      //   perdido su estado en esta pestaña sin que la pestaña en sí se
+      //   haya cerrado — por ejemplo, Chrome puede descargar ("discard")
+      //   una pestaña de fondo para liberar memoria y recargarla desde
+      //   cero recién al volver a usarla, perdiendo toda solapa ya
+      //   abierta. Acá no hay que darse por vencido: se devuelve null
+      //   para que el llamador caiga a la búsqueda completa de abajo,
+      //   que reabre el expediente de cero y probablemente funcione.
+      if (r && r.error && /en la lista\.?$/.test(r.error)) throw new Error(r.error);
+      return null; // sin respuesta, o motivo no concluyente: que decida el llamador
     }
 
     const cid = r.cid;
