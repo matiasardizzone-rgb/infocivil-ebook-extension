@@ -1061,7 +1061,12 @@ init();
   // Mismo techo total que antes (4.5s) para no arriesgar nada en una
   // conexión lenta — solo deja de esperar de más cuando no hace falta.
   function esperarTablaLista(t){return new Promise(r=>{const i=Date.now();const id=setInterval(()=>{if(obtenerHtmlTabla().trim().length>0){clearInterval(id);r(true);}else if(Date.now()-i>=t){clearInterval(id);r(false);}},200);});}
-  function obtenerNombreExpediente(){const m=document.body.innerText.match(/[A-Z]{2,4}\s?\d+\/\d+/);return m?m[0].replace(/\//g,'-'):'Expediente';}
+  // Incluye el segmento de incidente opcional (/n al final) — sin esto, un
+  // incidente (CIV 2425/2026/1) devolvía el mismo nombre que su expediente
+  // principal (CIV 2425/2026), y fusionarDuplicadosPorNumero (db.js) los
+  // trataba como el mismo expediente: al guardar el incidente en la
+  // biblioteca, borraba el principal ya guardado por "duplicado".
+  function obtenerNombreExpediente(){const m=document.body.innerText.match(/[A-Z]{2,4}\s?\d+\/\d+(?:\/\d+)?/);return m?m[0].replace(/\//g,'-'):'Expediente';}
   function obtenerCid(){const m=window.location.href.match(/cid=(\d+)/);return m?m[1]:null;}
   function arrayBufferABase64(buffer){
     // chrome.runtime.sendMessage puede corromper ArrayBuffers grandes;
@@ -1218,6 +1223,21 @@ init();
   // primer tramo de espera, se reintenta con un segundo clic antes de
   // darse por vencido — no cuesta nada si ya andaba bien de una, y
   // resuelve el caso en que no.
+  // Diagnóstico (no cambia el resultado, solo lo que se ve en la consola):
+  // este mecanismo salió mal en la práctica (v1.18.5) y no se pudo
+  // reproducir en esta sesión sin un Chrome real — si vuelve a fallar,
+  // este log en consola es lo que hace falta pegar para poder seguir.
+  function diagnosticoVinculados(etapa) {
+    try {
+      const tabla = document.querySelector(SELECTOR_TABLA_VINCULADOS);
+      console.warn('[Infocivil vinculados] ' + etapa + ' — solapaEncontrada=' +
+        (Array.from(document.querySelectorAll('.rf-tab-lbl')).some(el => (el.textContent || '').trim() === 'Vinculados')) +
+        ', contenidoAjaxPresente=' + !!document.querySelector(SELECTOR_CONTENIDO_VINCULADOS) +
+        ', tablaPresente=' + !!tabla +
+        ', filasEnTabla=' + (tabla ? tabla.querySelectorAll('tbody tr').length : 0));
+    } catch (e) { /* nunca romper el flujo real por un log */ }
+  }
+
   async function leerVinculadosDOM() {
     if (!abrirSolapaVinculados()) return { vinculados: [], estado: 'no-disponible' };
 
@@ -1234,10 +1254,12 @@ init();
         if (filas.length) return { vinculados: filas, estado: 'ok' };
         const texto = (document.body && document.body.innerText) || '';
         if (/total de 0 vinculado/i.test(texto) || /no se (han )?encontr/i.test(texto)) {
+          diagnosticoVinculados('esperarFilas: mensaje "sin vinculados" detectado en el texto de la página');
           return { vinculados: [], estado: 'sin-vinculados' };
         }
         await esperar(400);
       }
+      diagnosticoVinculados('esperarFilas: se acabó el tiempo de espera (' + tope + 'ms) sin filas ni mensaje de "sin vinculados"');
       return null; // ni filas ni mensaje de "sin vinculados" — inconcluso, no se sabe todavía
     }
 
@@ -1248,6 +1270,7 @@ init();
     // nada nuevo — reintenta con un segundo clic y espera lo que queda.
     abrirSolapaVinculados();
     resultado = await esperarFilas(10000);
+    if (!resultado) diagnosticoVinculados('segundo clic también inconcluso: se da por vencido');
     return resultado || { vinculados: [], estado: 'sin-vinculados' };
   }
 
