@@ -1196,18 +1196,31 @@ init();
     return false;
   }
 
+  // Diagnóstico real (consola del operador, v1.18.6): la tabla SÍ aparece
+  // y SÍ tiene 1 fila (tablaPresente=true, filasEnTabla=1) pero esta
+  // función nunca la reconocía como vinculado válido — se quedaba
+  // esperando hasta darse por vencida con estado 'sin-vinculados', pese a
+  // haber una fila real. La sospecha, sin poder confirmarla contra el
+  // HTML real: la primera celda de la fila no es el número de expediente
+  // (puede ser un ícono, un checkbox de selección, o quedar vacía por
+  // alguna otra razón), y/o la fila usa <th> en vez de <td> para alguna
+  // celda. Antes esto exigía el número de expediente en la celda 0
+  // exactamente; ahora se busca en cualquier celda de la fila (td o th),
+  // igual que ya no importaba en qué celda estuviera para claveExpediente
+  // más abajo.
   function leerFilasVinculados() {
     const tabla = document.querySelector(SELECTOR_TABLA_VINCULADOS);
     const filas = tabla ? Array.from(tabla.querySelectorAll('tbody tr')) : [];
     const salida = [];
     for (const fila of filas) {
-      const celdas = Array.from(fila.querySelectorAll('td')).map(c => (c.innerText || '').trim());
+      const celdas = Array.from(fila.querySelectorAll('td, th')).map(c => (c.innerText || '').trim());
       if (!celdas.length) continue;
-      const expediente = (celdas[0] || '').replace(/\s+/g, ' ').trim();
-      if (!/\d+\/\d{4}\/\d+/.test(expediente)) continue;
+      const idx = celdas.findIndex(c => /\d+\/\d{4}\/\d+/.test(c));
+      if (idx === -1) continue;
+      const expediente = celdas[idx].replace(/\s+/g, ' ').trim();
       salida.push({
-        expediente, dependencia: celdas[1] || '', situacion: celdas[2] || '',
-        caratula: celdas[3] || '', ultimaActuacion: celdas[4] || '',
+        expediente, dependencia: celdas[idx + 1] || '', situacion: celdas[idx + 2] || '',
+        caratula: celdas[idx + 3] || '', ultimaActuacion: celdas[idx + 4] || '',
       });
     }
     return salida;
@@ -1230,11 +1243,16 @@ init();
   function diagnosticoVinculados(etapa) {
     try {
       const tabla = document.querySelector(SELECTOR_TABLA_VINCULADOS);
+      const filas = tabla ? Array.from(tabla.querySelectorAll('tbody tr')) : [];
       console.warn('[Infocivil vinculados] ' + etapa + ' — solapaEncontrada=' +
         (Array.from(document.querySelectorAll('.rf-tab-lbl')).some(el => (el.textContent || '').trim() === 'Vinculados')) +
         ', contenidoAjaxPresente=' + !!document.querySelector(SELECTOR_CONTENIDO_VINCULADOS) +
         ', tablaPresente=' + !!tabla +
-        ', filasEnTabla=' + (tabla ? tabla.querySelectorAll('tbody tr').length : 0));
+        ', filasEnTabla=' + filas.length +
+        // Si vuelve a fallar tras el fix de v1.18.8, esto muestra el texto
+        // real de cada celda de la primera fila — lo que hace falta para
+        // seguir si la sospecha (número en otra celda / <th>) no alcanzó.
+        (filas.length ? ', primeraFila=' + JSON.stringify(Array.from(filas[0].querySelectorAll('td, th')).map(c => (c.innerText || '').trim())) : ''));
     } catch (e) { /* nunca romper el flujo real por un log */ }
   }
 

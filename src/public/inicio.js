@@ -165,7 +165,7 @@ async function mostrarExpediente() {
     (nHist ? ' (' + nHist + ' históricas)' : '');
 
   const avisos = [];
-  if (exp.aviso) avisos.push(exp.aviso);
+  if (exp.aviso && !exp.desdeGuardado) avisos.push(exp.aviso);
   if (exp.paginacionIncompleta) avisos.push('El recorrido de páginas se cortó antes de tiempo (demora del sistema). Pueden faltar actuaciones más viejas. Conviene volver a consultar el expediente.');
   if (exp.historicasFaltantes) avisos.push('No se pudieron leer las actuaciones históricas: pueden faltar las más viejas (por ejemplo, la demanda).');
   $('avisos').innerHTML = '';
@@ -175,6 +175,11 @@ async function mostrarExpediente() {
     d.textContent = a;
     $('avisos').appendChild(d);
   }
+  // Mostrado desde Mis expedientes (sin tocar el SCW): mismo botón de
+  // actualizar que ya existe en la biblioteca (bibliotecaVerificarEnVivo /
+  // bibliotecaActualizarEnVivo), pero acá al lado, para no tener que ir a
+  // "Mis expedientes" solo para chequear novedades.
+  if (exp.desdeGuardado) renderAvisoGuardado();
 
   const r = await new Promise(res => chrome.runtime.sendMessage({ action: 'bibliotecaListar' }, res));
   const guardado = r && r.ok && (r.expedientes || []).some(e => e.cid === exp.cid);
@@ -192,6 +197,62 @@ async function mostrarExpediente() {
   });
 
   renderVinculados();
+}
+
+// Aviso "mostrando la versión guardada" con botón de actualizar in situ —
+// mismos dos mensajes que ya usa biblioteca.js (bibliotecaVerificarEnVivo /
+// bibliotecaActualizarEnVivo, background/index.js), no un mecanismo nuevo.
+function renderAvisoGuardado() {
+  const d = document.createElement('div');
+  d.className = 'aviso';
+  const texto = document.createElement('span');
+  texto.textContent = exp.aviso || 'Mostrando la versión guardada.';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'boton-secundario';
+  btn.textContent = '🔄 Actualizar';
+  btn.style.marginLeft = '10px';
+  btn.addEventListener('click', () => actualizarDesdeResultados(btn, texto));
+  d.append(texto, btn);
+  $('avisos').appendChild(d);
+}
+
+async function actualizarDesdeResultados(btn, texto) {
+  const cid = exp.cid;
+  btn.disabled = true;
+  texto.textContent = '⏳ Verificando en el SCW...';
+  try {
+    const v = await new Promise(res => chrome.runtime.sendMessage({ action: 'bibliotecaVerificarEnVivo', cid }, res));
+    if (!v || !v.ok) throw new Error((v && v.error) || 'No se pudo verificar.');
+    if (!v.cambio) {
+      texto.textContent = 'Ya está al día (verificado recién).';
+      btn.disabled = false;
+      return;
+    }
+    texto.textContent = '⏳ Actualizando (' + (v.nuevasDetectadas || 0) + ' actuación(es) nueva(s))...';
+    const a = await new Promise(res => chrome.runtime.sendMessage({ action: 'bibliotecaActualizarEnVivo', cid }, res));
+    if (!a || !a.ok) throw new Error((a && a.error) || 'No se pudo actualizar.');
+    // Progreso real vía chrome.storage.local — mismo canal que usa biblioteca.js.
+    await new Promise(resolve => {
+      const poll = setInterval(() => {
+        chrome.storage.local.get(['descargaProgreso'], data => {
+          const p = data.descargaProgreso;
+          if (!p) return;
+          const pct = p.total ? Math.round((p.descargados / p.total) * 100) : 0;
+          texto.textContent = '⏳ Actualizando... ' + p.descargados + ' / ' + p.total + ' (' + pct + '%)';
+          if (p.terminado) { clearInterval(poll); resolve(); }
+        });
+      }, 500);
+      setTimeout(() => { clearInterval(poll); resolve(); }, 120000); // tope de seguridad
+    });
+    // Recarga la pantalla entera desde lo recién actualizado en IndexedDB.
+    const actualizado = await db.obtenerExpediente(cid);
+    if (actualizado) await mostrarExpedienteGuardado(actualizado);
+    else { texto.textContent = 'Actualizado.'; btn.disabled = false; }
+  } catch (err) {
+    texto.textContent = '❌ ' + err.message;
+    btn.disabled = false;
+  }
 }
 
 // Incidentes y expedientes vinculados del principal (estilo del portal web).
@@ -680,11 +741,12 @@ async function mostrarExpedienteGuardado(expediente) {
     tituloExpediente: expediente.caratula,
     archivos: documentos.map(d => ({ titulo: d.titulo, esHistorica: d.esHistorica })),
     actuaciones: documentos.map(d => ({ titulo: d.titulo, fecha: d.fecha, tipo: d.tipo, descripcion: d.descripcion, esHistorica: d.esHistorica, urlPublica: d.urlHiper })),
-    // Aviso genérico: esto es lo que había guardado, no una consulta en
-    // vivo — capaz haya novedades en el SCW que todavía no se trajeron.
+    // Esto es lo que había guardado, no una consulta en vivo — capaz haya
+    // novedades en el SCW; el botón de renderAvisoGuardado() (ver
+    // mostrarExpediente) las trae sin salir de esta pantalla.
+    desdeGuardado: true,
     aviso: 'Mostrando la versión guardada (última verificación: ' +
-      (expediente.fechaVerificacion ? new Date(expediente.fechaVerificacion).toLocaleString('es-AR') : 'desconocida') +
-      '). Para traer novedades del SCW, andá a "Mis expedientes" y tocá 🔄 en esta tarjeta.',
+      (expediente.fechaVerificacion ? new Date(expediente.fechaVerificacion).toLocaleString('es-AR') : 'desconocida') + ').',
     paginacionIncompleta: false, historicasFaltantes: false,
     // Ya no queda siempre vacío: se persiste desde guardarEnBiblioteca
     // (ver accionEnPestana() e index.js) — un expediente guardado ANTES
