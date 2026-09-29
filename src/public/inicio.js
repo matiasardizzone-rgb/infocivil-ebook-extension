@@ -76,9 +76,22 @@ function iniciarBusqueda(datos) {
     // bien. Si lo que está en curso SÍ necesitaba este puerto, va a
     // fallar por su cuenta con su propio mensaje al intentar usarlo.
     if (ocupado) return;
+    // Con los resultados ya mostrados (vistaExpediente visible) y nada en
+    // curso, este disconnect case normalmente NO es más que el service
+    // worker durmiéndose por inactividad — pasa apenas el operador tarda
+    // un rato en tocar algo después de la búsqueda, y antes esto tiraba
+    // "se perdió la conexión" y bloqueaba TODOS los botones, aunque nada
+    // estuviera roto: las acciones (Leer como libro, Agregar a Mis
+    // expedientes, etc.) no usan este puerto — le mandan el mensaje
+    // directo a la pestaña del SCW (accionEnPestana(), vía
+    // chrome.tabs.sendMessage a exp.tabId), que sigue viva y responde
+    // igual, despertando el service worker si hace falta. El fondo
+    // (consulta.js) ya no cierra esa pestaña solo porque este puerto se
+    // cayó — así que acá no hay nada que avisar ni bloquear.
+    if (!$('vistaExpediente').hidden) return;
     const msg = 'Se perdió la conexión con la extensión. Volvé a consultar el expediente.';
-    if (!$('vistaExpediente').hidden) { estado(msg, 'error'); bloquearAcciones(true); }
-    else { estadoBuscar(msg, 'error'); $('btnConsultar').disabled = false; }
+    estadoBuscar(msg, 'error');
+    $('btnConsultar').disabled = false;
   });
   p.postMessage({ tipo: 'consultar', ...datos });
 }

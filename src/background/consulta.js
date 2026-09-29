@@ -484,6 +484,30 @@ export function iniciarConsultas() {
     const sesion = { tabId: null, cid: null, pestanaOrigen: port.sender && port.sender.tab };
     const avisar = texto => { try { port.postMessage({ tipo: 'etapa', texto }); } catch (e) {} };
 
+    // Cerrar la pestaña del SCW cuando la pantalla de inicio (la pestaña
+    // que abrió este puerto) se cierra DE VERDAD — no cuando el puerto se
+    // cae porque el service worker se apagó solo por inactividad, que en
+    // Manifest V3 es NORMAL y pasa aunque la pantalla siga abierta y
+    // quieta (visto en la práctica: "Se perdió la conexión con la
+    // extensión" apenas el operador tardaba un rato en tocar algo después
+    // de que llegaran los resultados). Antes esto se hacía con
+    // port.onDisconnect, que no distingue entre "la pantalla cerró de
+    // verdad" y "el service worker durmió" — en el segundo caso, cerraba
+    // la pestaña del SCW por abajo igual, y cualquier acción posterior
+    // (Leer como libro, Agregar a Mis expedientes, etc.) fallaba porque ya
+    // no había pestaña, aunque la pantalla siguiera perfectamente abierta.
+    // chrome.tabs.onRemoved sí es confiable en este caso: no depende del
+    // puerto ni del service worker estar despierto (Chrome lo entrega
+    // igual, despertándolo si hace falta).
+    const tabOrigenId = port.sender && port.sender.tab && port.sender.tab.id;
+    function alCerrarPestanaOrigen(tabId) {
+      if (tabId !== tabOrigenId) return;
+      chrome.tabs.onRemoved.removeListener(alCerrarPestanaOrigen);
+      if (sesion.rescateTimer) clearTimeout(sesion.rescateTimer);
+      if (sesion.tabId) chrome.tabs.remove(sesion.tabId).catch(() => {});
+    }
+    if (tabOrigenId != null) chrome.tabs.onRemoved.addListener(alCerrarPestanaOrigen);
+
     port.onMessage.addListener(async msg => {
       if (!msg || msg.tipo !== 'consultar') return;
       if (sesion.tabId) {
@@ -504,9 +528,14 @@ export function iniciarConsultas() {
       }
     });
 
-    // La pantalla de inicio se cerró o navegó: la ventana del SCW ya no
-    // hace falta.
+    // Ya NO cierra la pestaña del SCW acá (ver alCerrarPestanaOrigen más
+    // arriba) — un disconnect del puerto por sí solo no dice que la
+    // pantalla haya cerrado. Si no se pudo identificar la pestaña de
+    // origen (tabOrigenId null, caso raro), se cae al comportamiento
+    // anterior como red de seguridad, para no dejar la pestaña del SCW
+    // huérfana para siempre.
     port.onDisconnect.addListener(() => {
+      if (tabOrigenId != null) return;
       if (sesion.rescateTimer) clearTimeout(sesion.rescateTimer);
       if (sesion.tabId) chrome.tabs.remove(sesion.tabId).catch(() => {});
     });
