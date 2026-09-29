@@ -277,7 +277,12 @@ async function accionEnPestana(accion) {
   await chrome.storage.local.set({
     descargaProgreso: { total: exp.archivos.length, descargados: 0, errores: 0, terminado: false },
   });
-  chrome.tabs.sendMessage(exp.tabId, { action: accion, archivos: exp.archivos, folderName: exp.folderName, startIndex: 1 });
+  // vinculados va acá (no se lee de nuevo en el content script: solo viaja
+  // en la respuesta de una búsqueda en vivo) para que guardarEnBiblioteca
+  // lo persista junto con el resto — si no, se perdían al volver del
+  // libro con "← Volver" (esa pantalla lee todo de Mis expedientes, y sin
+  // esto la sección de vinculados quedaba siempre vacía ahí).
+  chrome.tabs.sendMessage(exp.tabId, { action: accion, archivos: exp.archivos, folderName: exp.folderName, startIndex: 1, vinculados: exp.vinculados || [] });
   return seguirProgreso('descargaProgreso', () =>
     accion === 'guardarEnBiblioteca' ? 'Guardando en Mis expedientes…' : 'Armando el ZIP…').promesa;
 }
@@ -637,10 +642,11 @@ document.querySelector('[data-formato="unificado-indice"]').addEventListener('cl
 // ─────────────────────────── "← Volver" desde el lector ───────────────────────────
 // inicio.html?resultados=<cid>: en vez de una búsqueda nueva contra el
 // SCW, arma la pantalla de resultados leyendo directo de lo que ya está
-// guardado en Mis Expedientes (sin pasar por el SCW de nuevo). Vinculados
-// no se persisten (solo viajan en la respuesta de una búsqueda en vivo),
-// así que esa sección queda vacía en este camino — limitación conocida,
-// no hay vuelta si el expediente no se resguscó de nuevo.
+// guardado en Mis Expedientes (sin pasar por el SCW de nuevo). Los
+// vinculados ahora se persisten junto con el resto en guardarEnBiblioteca
+// (ver accionEnPestana más arriba) — antes se perdían acá porque solo
+// viajaban en la respuesta de una búsqueda en vivo, y esta pantalla nunca
+// los guardaba.
 (async function cargarDesdeGuardado() {
   const cid = new URLSearchParams(location.search).get('resultados');
   if (!cid) return;
@@ -657,7 +663,10 @@ document.querySelector('[data-formato="unificado-indice"]').addEventListener('cl
     archivos: documentos.map(d => ({ titulo: d.titulo, esHistorica: d.esHistorica })),
     actuaciones: documentos.map(d => ({ titulo: d.titulo, fecha: d.fecha, tipo: d.tipo, descripcion: d.descripcion, esHistorica: d.esHistorica, urlPublica: d.urlHiper })),
     aviso: '', paginacionIncompleta: false, historicasFaltantes: false,
-    vinculados: [],
+    // Ya no queda siempre vacío: se persiste desde guardarEnBiblioteca
+    // (ver accionEnPestana() e index.js) — un expediente guardado ANTES
+    // de este cambio no va a tenerlo hasta que se vuelva a guardar.
+    vinculados: expediente.vinculados || [],
   };
   await mostrarExpediente();
 })();

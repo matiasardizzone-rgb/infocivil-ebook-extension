@@ -192,6 +192,7 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
           hash: db.calcularHash(archivos),
           estado: 'descargando',
           fechaDescarga: new Date().toISOString(),
+          vinculados: message.vinculados || [],
         });
         sendResponse({ ok: true, expediente: reg });
       } catch (err) {

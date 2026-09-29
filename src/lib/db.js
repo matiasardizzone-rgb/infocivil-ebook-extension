@@ -101,6 +101,14 @@ async function guardarExpediente(meta) {
     fechaVerificacion: meta.fechaVerificacion || new Date().toISOString(),
     estado: meta.estado || 'ok',            // 'ok' | 'nuevo' | 'descargando'
     nuevasDetectadas: meta.nuevasDetectadas ?? 0,
+    // Incidentes y expedientes vinculados del principal (los que se ven en
+    // la solapa "Vinculados" del SCW). Solo viajan en la respuesta de una
+    // búsqueda en vivo (leerVinculadosDOM), así que si esta llamada no
+    // trae vinculados (por ejemplo, el guardado automático al "Leer como
+    // libro" no los manda) se conserva lo que ya había guardado, en vez de
+    // borrarlo — evita que se pierdan silenciosamente en un guardado que
+    // no tenía por qué tocarlos.
+    vinculados: meta.vinculados !== undefined ? meta.vinculados : ((existente && existente.vinculados) || []),
   };
   await reqToPromise(store.put(registro));
   return registro;

@@ -449,6 +449,22 @@ async function renderCanvas(idx) {
   canvas.width = vp.width; canvas.height = vp.height;
   await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
   pg.canvas = canvas;
+
+  // Capa de texto invisible superpuesta al canvas, para poder seleccionar
+  // y copiar texto — antes el libro solo mostraba una imagen (el canvas
+  // renderizado), sin nada seleccionable. Se guarda ya armada en
+  // pg.textLayerEl y pintarHoja() la clona igual que ya hacía con el
+  // canvas, para no tener que rearmarla en cada vuelta de hoja.
+  try {
+    const textLayerDiv = document.createElement('div');
+    textLayerDiv.className = 'textLayer';
+    const textContent = await page.getTextContent();
+    await pdfjsLib.renderTextLayer({ textContentSource: textContent, container: textLayerDiv, viewport: vp }).promise;
+    pg.textLayerEl = textLayerDiv;
+  } catch (err) {
+    console.warn('[PJN Biblioteca] No se pudo armar la capa de texto de la página (queda sin selección):', err);
+    pg.textLayerEl = null;
+  }
   return pg;
 }
 
@@ -476,7 +492,20 @@ function pintarHoja(colEl, pg, indice) {
   colEl.querySelector('.leaf-foot').style.visibility = pg ? '' : 'hidden';
   if (!pg) return;
 
-  wrap.appendChild(clonarCanvas(pg.canvas));
+  // La caja se arma con el tamaño en px NATIVO del canvas (pg.canvas.width
+  // x .height, la resolución interna a la escala elegida, no el tamaño
+  // final en pantalla) — canvas y textLayer adentro van al 100%/100%,
+  // así que el .page-box entero se achica como UNA sola unidad vía
+  // max-width/max-height:100% del CSS (ver biblioteca.html). Eso
+  // garantiza que la capa de texto quede exactamente encima del canvas
+  // a cualquier zoom, sin tener que medir nada por JS.
+  const box = document.createElement('div');
+  box.className = 'page-box';
+  box.style.width = pg.canvas.width + 'px';
+  box.style.height = pg.canvas.height + 'px';
+  box.appendChild(clonarCanvas(pg.canvas));
+  if (pg.textLayerEl) box.appendChild(pg.textLayerEl.cloneNode(true));
+  wrap.appendChild(box);
   const doc = pg.doc;
   const ref = colEl.querySelector('.lh-ref');
   ref.textContent = `Act. ${pg.di + 1} · ${doc.titulo} · pág ${pg.p}`;

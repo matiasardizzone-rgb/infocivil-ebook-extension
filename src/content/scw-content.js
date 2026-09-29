@@ -239,7 +239,7 @@
         await new Promise(r => chrome.runtime.sendMessage({ action: 'bibliotecaEliminar', cid }, r));
         await new Promise(r => chrome.runtime.sendMessage({
           action: 'bibliotecaIniciar', cid, numero: folderName, folderName,
-          caratula: obtenerCaratula(), archivos
+          caratula: obtenerCaratula(), archivos, vinculados: message.vinculados || []
         }, r));
 
         // Fase 1: descargar todas las actuaciones, hasta 3 en simultáneo —
