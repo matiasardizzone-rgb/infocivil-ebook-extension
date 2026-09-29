@@ -96,7 +96,7 @@ function iniciarBusqueda(datos) {
   p.postMessage({ tipo: 'consultar', ...datos });
 }
 
-$('formBuscar').addEventListener('submit', ev => {
+$('formBuscar').addEventListener('submit', async ev => {
   ev.preventDefault();
   const sel = $('jurisdiccion');
   const valorJurisdiccion = sel.value;
@@ -108,6 +108,23 @@ $('formBuscar').addEventListener('submit', ev => {
   if (!valorJurisdiccion) return estadoBuscar('Elegí una jurisdicción.', 'error');
   if (!/^\d+$/.test(numero) || !/^\d{4}$/.test(anio)) return estadoBuscar('Completá número y año (el año con 4 cifras).', 'error');
   if (incidente && !/^\d+$/.test(incidente)) return estadoBuscar('El incidente tiene que ser un número.', 'error');
+
+  // Antes de salir a buscarlo al SCW (varios segundos), nos fijamos si ya
+  // está en Mis expedientes: si está, preguntamos — no lo abrimos directo
+  // sin avisar, porque puede haber novedades que el operador sí quiera
+  // traer, pero tampoco tiene sentido repetir siempre la búsqueda completa
+  // si lo único que quiere es volver a mirar algo que ya tiene.
+  const clave = db.normalizarClaveExpediente(
+    sigla + ' ' + numero + '/' + anio + (incidente ? '/' + incidente : ''));
+  const guardado = clave && await db.buscarExpedientePorNumero(clave);
+  if (guardado) {
+    const fecha = guardado.fechaVerificacion ? new Date(guardado.fechaVerificacion).toLocaleString('es-AR') : 'desconocida';
+    const usarGuardado = confirm(
+      'Ya tenés "' + guardado.numero + '" en Mis expedientes (última verificación: ' + fecha + ').\n\n' +
+      'Aceptar: abrirlo al instante, sin tocar el SCW.\n' +
+      'Cancelar: buscarlo de nuevo en el SCW (por si hay actuaciones nuevas).');
+    if (usarGuardado) { await mostrarExpedienteGuardado(guardado); return; }
+  }
 
   $('btnConsultar').disabled = true;
   estadoBuscar('Buscando el expediente en el SCW… puede demorar unos segundos.', 'cargando');
@@ -647,12 +664,13 @@ document.querySelector('[data-formato="unificado-indice"]').addEventListener('cl
 // (ver accionEnPestana más arriba) — antes se perdían acá porque solo
 // viajaban en la respuesta de una búsqueda en vivo, y esta pantalla nunca
 // los guardaba.
-(async function cargarDesdeGuardado() {
-  const cid = new URLSearchParams(location.search).get('resultados');
-  if (!cid) return;
-  const expediente = await db.obtenerExpediente(cid);
-  if (!expediente) { estadoBuscar('No se encontró "' + cid + '" en Mis expedientes.', 'error'); return; }
-  const documentos = await db.obtenerDocumentos(cid);
+// Arma la pantalla de resultados leyendo directo de lo que ya está
+// guardado en Mis Expedientes (sin pasar por el SCW). Comparte código
+// entre "← Volver" (cargarDesdeGuardado, abajo) y el atajo de "Nueva
+// consulta" cuando el operador elige abrir un expediente que ya tenía
+// guardado en vez de repetir la búsqueda completa (ver formBuscar).
+async function mostrarExpedienteGuardado(expediente) {
+  const documentos = await db.obtenerDocumentos(expediente.cid);
   exp = {
     cid: expediente.cid,
     tabId: null, // no hay pestaña del SCW abierta en este camino: no vino de una búsqueda en vivo
@@ -662,11 +680,28 @@ document.querySelector('[data-formato="unificado-indice"]').addEventListener('cl
     tituloExpediente: expediente.caratula,
     archivos: documentos.map(d => ({ titulo: d.titulo, esHistorica: d.esHistorica })),
     actuaciones: documentos.map(d => ({ titulo: d.titulo, fecha: d.fecha, tipo: d.tipo, descripcion: d.descripcion, esHistorica: d.esHistorica, urlPublica: d.urlHiper })),
-    aviso: '', paginacionIncompleta: false, historicasFaltantes: false,
+    // Aviso genérico: esto es lo que había guardado, no una consulta en
+    // vivo — capaz haya novedades en el SCW que todavía no se trajeron.
+    aviso: 'Mostrando la versión guardada (última verificación: ' +
+      (expediente.fechaVerificacion ? new Date(expediente.fechaVerificacion).toLocaleString('es-AR') : 'desconocida') +
+      '). Para traer novedades del SCW, andá a "Mis expedientes" y tocá 🔄 en esta tarjeta.',
+    paginacionIncompleta: false, historicasFaltantes: false,
     // Ya no queda siempre vacío: se persiste desde guardarEnBiblioteca
     // (ver accionEnPestana() e index.js) — un expediente guardado ANTES
     // de este cambio no va a tenerlo hasta que se vuelva a guardar.
     vinculados: expediente.vinculados || [],
   };
   await mostrarExpediente();
+}
+
+// ─────────────────────────── "← Volver" desde el lector ───────────────────────────
+// inicio.html?resultados=<cid>: mismo camino que mostrarExpedienteGuardado
+// de arriba, pero disparado por la URL en vez de por una elección en el
+// formulario de búsqueda.
+(async function cargarDesdeGuardado() {
+  const cid = new URLSearchParams(location.search).get('resultados');
+  if (!cid) return;
+  const expediente = await db.obtenerExpediente(cid);
+  if (!expediente) { estadoBuscar('No se encontró "' + cid + '" en Mis expedientes.', 'error'); return; }
+  await mostrarExpedienteGuardado(expediente);
 })();

@@ -128,6 +128,28 @@ async function listarExpedientes() {
   return todos;
 }
 
+// ─── Búsqueda por número (para no repetir una consulta ya guardada) ───────
+// El campo "numero" de cada registro viene de obtenerNombreExpediente()
+// (scw-content.js), con formato variable: separador '-' en vez de '/',
+// puede o no traer ceros a la izquierda, y puede o no traer el segmento de
+// incidente. Para comparar "¿ya tengo este expediente guardado?" contra lo
+// que el operador tipeó en el formulario (separador '/', sin ceros de
+// más) hace falta normalizar los dos lados a la misma forma — mismo
+// patrón que claveExpediente() en scw-content.js para los vinculados.
+function normalizarClaveExpediente(texto) {
+  const m = (texto || '').match(/([A-Z]{2,4})\D*0*(\d+)\D+(\d{4})(?:\D+0*(\d+))?/i);
+  if (!m) return null;
+  return m[1].toUpperCase() + '|' + Number(m[2]) + '|' + m[3] + '|' + (m[4] !== undefined ? Number(m[4]) : 0);
+}
+
+// clave: ya normalizada (normalizarClaveExpediente) — devuelve el registro
+// guardado que matchea, o null si no hay ninguno.
+async function buscarExpedientePorNumero(clave) {
+  if (!clave) return null;
+  const todos = await listarExpedientes();
+  return todos.find(e => normalizarClaveExpediente(e.numero) === clave) || null;
+}
+
 async function actualizarEstadoExpediente(cid, patch) {
   const db = await openDB();
   const store = tx(db, STORE_EXPEDIENTES, 'readwrite').objectStore(STORE_EXPEDIENTES);
@@ -302,6 +324,7 @@ async function fusionarDuplicadosPorNumero(cid, numero) {
 export {
   calcularHash, idActuacion, idDeDocumento, fusionarDuplicadosPorNumero,
   guardarExpediente, obtenerExpediente, listarExpedientes,
+  normalizarClaveExpediente, buscarExpedientePorNumero,
   actualizarEstadoExpediente, eliminarExpediente,
   guardarDocumento, obtenerDocumentos, contarDocumentos, marcarEliminadasEnSCW,
   guardarMarcador, obtenerMarcadores, eliminarMarcador, eliminarMarcadorPorId,
