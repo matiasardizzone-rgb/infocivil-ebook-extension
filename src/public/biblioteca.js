@@ -560,6 +560,8 @@ function actualizarCabeceraPieControles(i, pgL) {
     : `fs. ${i + 1} / ${pages.length}`;
   document.getElementById('btnPrev').disabled = i <= 0;
   document.getElementById('btnNext').disabled = i + paso() >= pages.length;
+  document.getElementById('btnPrimera').disabled = i <= 0;
+  document.getElementById('btnUltima').disabled = i + paso() >= pages.length;
   document.querySelectorAll('.index-item').forEach(t => {
     const di = +t.dataset.di;
     t.classList.toggle('on', di === pgL.di || (pgR && di === pgR.di));
@@ -677,6 +679,11 @@ function irADoc(di) {
 
 document.getElementById('btnPrev').addEventListener('click', () => goTo(cur - paso(), 'prev'));
 document.getElementById('btnNext').addEventListener('click', () => goTo(cur + paso(), 'next'));
+// Saltar directo a la primera/última foja — mismo destino que ya hacían
+// las teclas Home/End (ver el listener de keydown más abajo), ahora
+// también como botón visible.
+document.getElementById('btnPrimera').addEventListener('click', () => goTo(0, 'prev'));
+document.getElementById('btnUltima').addEventListener('click', () => goTo(pages.length - 1, 'next'));
 document.getElementById('navL').addEventListener('click', () => goTo(cur - paso(), 'prev'));
 document.getElementById('navR').addEventListener('click', () => goTo(cur + paso(), 'next'));
 document.addEventListener('keydown', e => {
