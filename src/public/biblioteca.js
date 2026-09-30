@@ -16,7 +16,9 @@ const FLAG_COLORS = [
 let expActivo = null;   // registro de db.js del expediente abierto
 let docsDb = [];         // documentos crudos de IndexedDB (con blob)
 let pdfProxies = [];     // { di, pdf } — un getDocument() por doc, cacheado
-let pages = [];          // aplanado: { di, p, doc, canvas:null }
+let pages = [];          // aplanado: { di, p, doc, canvas:null } — en el orden de lectura ACTUAL
+let pagesAsc = [];        // el mismo armado, siempre en orden cronológico real (para poder invertir sin rearmar nada)
+let ordenInvertido = false; // false = cronológico (más vieja primero); true = de la más nueva a la más vieja
 let flags = [];
 let firmasPorDoc = [];   // { estado, firmas, detalle } | null (todavía no verificado) — indexado por di
 let cur = 0, animating = false, selColor = FLAG_COLORS[0].id;
@@ -303,6 +305,14 @@ async function abrirExpediente(cid) {
         ' con error). El primero: "' + (erroresParse[0].doc.titulo || erroresParse[0].doc.tipo || 'sin título') +
         '" — ' + erroresParse[0].mensaje);
     }
+    // Cada expediente se abre siempre en orden cronológico, aunque el
+    // anterior haya quedado invertido — pagesAsc es la referencia para
+    // poder ir y volver sin rearmar nada (ver invertirOrdenLectura()).
+    pagesAsc = pages;
+    ordenInvertido = false;
+    const btnInv = document.getElementById('btnInvertir');
+    btnInv.classList.remove('on');
+    btnInv.title = 'Leer de la actuación más nueva a la más vieja';
 
     flags = await cargarBanderitas(cid);
     cur = 0;
@@ -582,6 +592,35 @@ async function cambiarModoPaginas(unaSola) {
   modoUnaPagina = unaSola;
   await render(cur);
 }
+
+// Invierte el sentido de lectura: de la actuación más vieja a la más
+// nueva (cronológico, el orden real del expediente) o al revés. No
+// rearma nada — pagesAsc guarda siempre el orden cronológico, así que
+// invertir es solo tomar esa lista (o darla vuelta) y volver a mostrar
+// la misma hoja que se estaba viendo, ahora en su nueva posición.
+//
+// Los marcadores (flags) se anclan por actuación+foja EN LA BASE (no por
+// posición absoluta), pero cargarBanderitas() les calcula una posición
+// absoluta (.page) en memoria a partir del orden ACTUAL de "pages" — al
+// invertir, esas posiciones quedan mal (apuntan al orden viejo), así que
+// hay que recalcularlas de nuevo contra el nuevo orden, no alcanza con
+// mover el array de páginas solo.
+async function invertirOrdenLectura() {
+  if (animating || !pages.length) return;
+  const pgActual = pages[cur];
+  ordenInvertido = !ordenInvertido;
+  pages = ordenInvertido ? pagesAsc.slice().reverse() : pagesAsc;
+  const btn = document.getElementById('btnInvertir');
+  btn.classList.toggle('on', ordenInvertido);
+  btn.title = ordenInvertido
+    ? 'Leyendo de la actuación más nueva a la más vieja — tocar para volver al orden cronológico'
+    : 'Leer de la actuación más nueva a la más vieja';
+  const nuevoIdx = pgActual ? pages.findIndex(pg => pg.di === pgActual.di && pg.p === pgActual.p) : 0;
+  flags = await cargarBanderitas(expActivo.cid);
+  await render(Math.max(0, nuevoIdx));
+  renderFlags();
+}
+document.getElementById('btnInvertir').addEventListener('click', invertirOrdenLectura);
 
 function esperarTransicion(el) {
   return new Promise(resolve => {
